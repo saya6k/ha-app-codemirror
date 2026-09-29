@@ -5,13 +5,15 @@ RUN npm ci
 COPY frontend/index.html frontend/styles.css frontend/tsconfig.json frontend/vite.config.ts ./
 # Keep the source directory explicit: incomplete installs must fail at COPY.
 COPY frontend/src/ ./src/
+COPY frontend/public/ ./public/
 RUN npm run build
 
 FROM python:3.12-alpine
 WORKDIR /app
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
-COPY app.py filesystem.py file_actions.py LICENSE.md ./
+COPY app.py filesystem.py file_actions.py archive_upload.py LICENSE.md ./
+COPY branding/ ./branding/
 COPY --from=frontend /static ./static
 COPY run.sh /run.sh
 RUN chmod +x /run.sh

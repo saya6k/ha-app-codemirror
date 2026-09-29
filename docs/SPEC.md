@@ -127,3 +127,26 @@ Publishing/deployment is outside this implementation request.
   states. The entity API adds optional `state_translated`; suggestions prefer it
   and fall back to raw `state`. Entity IDs are never translated. No browser-supplied
   templates or arbitrary upstream endpoints are accepted.
+
+## 0.4.0: localization, branding, tabs and folder archives
+
+- Appearance exposes `auto | en | ko`, stored in `codemirror:language`. Auto follows
+  the browser. App chrome and `EditorState.phrases` are localized; editor contents,
+  filenames, entity IDs and Markdown preview are excluded. HA translated states
+  continue to follow HA settings independently of the app locale.
+- Use the official CodeMirror website SVG unchanged; rasterize to transparent
+  256px icon.png and 640px logo.png. Bundle the source, provenance and MIT notice.
+- Tabs are keyed by root + path and retain full EditorState plus last-valid content
+  and scroll position. Save applies to the active tab. Close confirms dirty state.
+  Unsaved inactive tabs also block affected file mutations and HA lifecycle actions.
+  Buffers are memory-only; the existing last-open-file persistence stays disk-based.
+- `POST /api/upload-folder?root=...` accepts multipart `directory` and one ZIP `file`.
+  Browser folder selection/drop is compressed incrementally using fflate, with no
+  worker/blob CSP relaxation. A single top-level directory is staged then published
+  by exclusive rename. Nested binaries and Unicode names are preserved.
+- Reject unsafe/duplicate/conflicting paths, encrypted ZIP, nonregular entries,
+  unsupported compression, CRC errors and expansion over max_upload_mb. Limits:
+  10000 explicit/implicit entries and 32 levels including the selected destination.
+  Existing folders are never merged. Empty directories are preserved by the drop
+  API; webkitdirectory pickers may omit empty directories.
+- Git initialized on main, with the original 0.3.0 source captured as the initial commit.

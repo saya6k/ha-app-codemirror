@@ -1,3 +1,4 @@
+import { translate } from './i18n';
 import { createEntry, runHAAction, validateConfig } from './api';
 import { getEditorFileType, validateCurrentDocument, showEntityCompletions } from './editor';
 import { getEntityCount } from './autocomplete';
@@ -79,7 +80,7 @@ export function initToolbar(actions: ToolbarActions): void {
       actions.status('Save your changes before continuing', 'Home Assistant uses saved files', true);
       return;
     }
-    if (action === 'restart' && !window.confirm('Restart Home Assistant Core? Automations and the HA UI will be briefly unavailable.')) return;
+    if (action === 'restart' && !window.confirm(translate('Restart Home Assistant Core? Automations and the HA UI will be briefly unavailable.'))) return;
     actions.setBusy(true);
     controlButtons.forEach(button => { button.disabled = true; });
     actions.clearDetails();

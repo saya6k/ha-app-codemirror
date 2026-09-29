@@ -3,7 +3,7 @@
  */
 
 import { initTheme } from './theme';
-import { createEditor, setEditorReadOnly, setContent, getContent, registerSaveShortcut, editorUndo, editorRedo, editorIndent, editorDedent, canEditorUndo, canEditorRedo, restoreLastValidContent, applyAppearanceSettings, scrollEditorSelectionIntoView, configureEditorForFile, getEditorFileType, validateCurrentDocument } from './editor';
+import { createEditor, setEditorReadOnly, setContent, getContent, registerSaveShortcut, editorUndo, editorRedo, editorIndent, editorDedent, canEditorUndo, canEditorRedo, restoreLastValidContent, applyAppearanceSettings, scrollEditorSelectionIntoView, configureEditorForFile, getEditorFileType, validateCurrentDocument, captureEditor, restoreEditor } from './editor';
 import { fetchRoots, fetchEntities, fetchFiles, fetchSettings, readFile, saveFile, validateConfig, type EditorSettings, type FileInfo, type Workspace } from './api';
 import { setEntities } from './autocomplete';
 import { getAppearanceSettings, initAppearance } from './appearance';
@@ -12,9 +12,11 @@ import { initMarkdownPreview } from './markdown';
 import { initUploads } from './uploads';
 import { initToolbar } from './toolbar';
 import { initExplorerActions } from './explorer-actions';
-import { text } from './i18n';
+import { text, initLanguage } from './i18n';
+import { createTabs, tabKey } from './tabs';
 
 // Application state
+initLanguage();
 let currentFile: string | null = null;
 let currentRoot = 'config';
 let roots: Workspace[] = [];
@@ -92,7 +94,16 @@ const indentBtnEl = document.getElementById('indent-btn') as HTMLElement;
 const dedentBtnEl = document.getElementById('dedent-btn') as HTMLElement;
 const editorToolbarEl = document.getElementById('editor-toolbar') as HTMLElement;
 const updatePreview = initMarkdownPreview(getContent);
+const documents = createTabs(loadFile, closeTab);
 const uploads = initUploads(selectedFolder, loadFiles, () => isToolbarBusy || isLoadingFile || isSaving);
+function updateEmptyDocumentLabels(): void {
+  if (currentFile) return;
+  currentFilenameEl.textContent = text('No file selected', '선택한 파일 없음');
+  mobileFilenameEl.textContent = text('No file', '파일 없음');
+}
+window.addEventListener('language-changed', updateEmptyDocumentLabels);
+updateEmptyDocumentLabels();
+
 
 async function initializeWorkspaces(): Promise<void> {
   const result = await fetchRoots();
@@ -105,7 +116,7 @@ async function initializeWorkspaces(): Promise<void> {
 }
 
 window.addEventListener('beforeunload', (event) => {
-  if (isModified || uploads.isBusy()) { event.preventDefault(); event.returnValue = ''; }
+  if (isModified || Array.from(documents.tabs.values()).some(tab => tab.modified) || uploads.isBusy()) { event.preventDefault(); event.returnValue = ''; }
 });
 // Upstream toolbar uses role=button elements; retain mobile behavior and add keyboard support.
 document.querySelectorAll<HTMLElement>('[role="button"]').forEach((button) => {
@@ -395,7 +406,7 @@ async function init(): Promise<void> {
       // Create editor
       createEditor(editorEl, editorSettings);
       initToolbar({
-        context: () => ({ ...selectedFolder(), file: currentFile, modified: isModified }),
+        context: () => ({ ...selectedFolder(), file: currentFile, modified: hasUnsavedTabs() }),
         isBusy: () => isSaving || isLoadingFile || isToolbarBusy || uploads.isBusy(),
         setBusy: (busy) => { isToolbarBusy = busy; setEditorReadOnly(busy || !currentFile); },
         refreshFiles: loadFiles,
@@ -417,30 +428,33 @@ async function init(): Promise<void> {
         busy: () => isSaving || isLoadingFile || isToolbarBusy || uploads.isBusy(),
         setBusy: (busy) => { isToolbarBusy = busy; setEditorReadOnly(busy || !currentFile); },
         canChange: (source) => {
-          const opened = currentRoot + '/' + currentFile;
-          if (isModified && (opened === source || opened.startsWith(source + '/'))) {
+          syncActiveTab();
+          if (Array.from(documents.tabs.entries()).some(([key, tab]) => tab.modified && (key === source || key.startsWith(source + '/')))) {
             updateStatus(text('Save changes before modifying this entry', '이 항목을 변경하기 전에 저장하세요'), '', true);
             return false;
           }
           return true;
         },
         changed: async (source, target) => {
-          const opened = currentRoot + '/' + currentFile;
-          if (currentFile && (opened === source || opened.startsWith(source + '/'))) {
-            // The old path no longer exists. Never leave it writable if reopening fails.
-            currentFile = null; isModified = false;
-            setContent('', true); setEditorReadOnly(true); updatePreview(null);
-            clearValidationDetails();
-            currentFilenameEl.textContent = 'No file selected'; mobileFilenameEl.textContent = 'No file';
-            document.getElementById('document-hint')!.textContent = 'Choose a file to start editing';
-            localStorage.removeItem(STORAGE_KEY_CURRENT_FILE);
-            saveBtnEl.setAttribute('aria-disabled', 'true'); saveBtnMobileEl.setAttribute('aria-disabled', 'true');
+          syncActiveTab();
+          const opened = currentFile ? tabKey(currentRoot, currentFile) : '';
+          let nextActive: string | null = null;
+          for (const [key, tab] of Array.from(documents.tabs.entries())) {
+            if (key !== source && !key.startsWith(source + '/')) continue;
+            documents.tabs.delete(key);
             if (target) {
-              const next = splitPath(target + opened.slice(source.length));
-              await loadFile(next.path, next.root);
-              if (!currentFile) throw new Error('Entry moved, but could not reopen it. Select it in the tree to retry.');
+              const next = target + key.slice(source.length);
+              const location = splitPath(next);
+              documents.tabs.set(next, { ...tab, root: location.root, path: location.path });
+              if (key === opened) nextActive = next;
             }
           }
+          if (opened === source || opened.startsWith(source + '/')) {
+            clearOpenDocument();
+            const next = nextActive || Array.from(documents.tabs.keys()).pop();
+            if (next) { const location = splitPath(next); await loadFile(location.path, location.root); }
+          }
+          documents.activate(currentFile ? tabKey(currentRoot, currentFile) : '');
         },
         refresh: loadFiles,
         status: message => updateStatus(message, ''),
@@ -463,6 +477,9 @@ async function init(): Promise<void> {
         }
 
          isModified = true;
+         const activeTab = currentFile && documents.tabs.get(tabKey(currentRoot, currentFile));
+         if (activeTab) activeTab.modified = true;
+         documents.render();
          // We don't clear validation details here anymore to prevent flickering.
          // editor-validation event will handle clearing if the document becomes valid.
          if (isDocumentValid) {
@@ -671,15 +688,15 @@ async function loadEntities(): Promise<void> {
   const status = document.getElementById('entity-status')!;
   const button = document.getElementById('refresh-entities-btn') as HTMLButtonElement;
   button.disabled = true;
-  status.textContent = text('Loading entities…', '엔티티 불러오는 중…');
+  status.textContent = 'Loading entities…';
   try {
     const entities = await fetchEntities();
     setEntities(entities);
-    status.textContent = text(`${entities.length} entities`, `엔티티 ${entities.length}개`);
+    status.textContent = `${entities.length} entities`;
     status.title = entities.length ? 'Home Assistant connected' : 'Home Assistant connected; no entities returned';
   } catch (reason) {
     setEntities([]);
-    status.textContent = text('Entities unavailable', '엔티티 연결 불가');
+    status.textContent = 'Entities unavailable';
     status.title = reason instanceof Error ? reason.message : 'Could not connect to Home Assistant';
   } finally {
     entitiesLoading = false;
@@ -840,6 +857,37 @@ function findNodeByPath(nodes: FileInfo[], targetPath: string): FileInfo | null 
    return null;
 }
 
+function syncActiveTab(): void {
+  if (!currentFile) return;
+  documents.tabs.set(tabKey(currentRoot, currentFile), { root: currentRoot, path: currentFile, modified: isModified, snapshot: captureEditor() });
+}
+function hasUnsavedTabs(): boolean {
+  return isModified || Array.from(documents.tabs.values()).some(tab => tab.modified);
+}
+function clearOpenDocument(): void {
+  currentFile = null; isModified = false;
+  setContent('', true); setEditorReadOnly(true); updatePreview(null); clearValidationDetails();
+  currentFilenameEl.textContent = text('No file selected', '선택한 파일 없음');
+  mobileFilenameEl.textContent = text('No file', '파일 없음');
+  document.getElementById('document-hint')!.textContent = 'Choose a file to start editing';
+  localStorage.removeItem(STORAGE_KEY_CURRENT_FILE);
+  saveBtnEl.setAttribute('aria-disabled', 'true'); saveBtnMobileEl.setAttribute('aria-disabled', 'true');
+}
+async function closeTab(key: string): Promise<void> {
+  if (isLoadingFile || isSaving || isToolbarBusy) return;
+  syncActiveTab();
+  const tab = documents.tabs.get(key);
+  if (!tab) return;
+  if (tab.modified && !window.confirm(text(`Discard unsaved changes and close ${tab.path}?`, `${tab.path}의 저장하지 않은 변경 내용을 버리고 닫을까요?`))) return;
+  documents.tabs.delete(key);
+  if (currentFile && tabKey(currentRoot, currentFile) === key) {
+    clearOpenDocument();
+    const next = Array.from(documents.tabs.values()).pop();
+    if (next) await loadFile(next.path, next.root);
+  }
+  documents.activate(currentFile ? tabKey(currentRoot, currentFile) : '');
+}
+
 /**
  * Load a file into the editor
  * Fetches file content, updates UI, and marks as active
@@ -847,21 +895,26 @@ function findNodeByPath(nodes: FileInfo[], targetPath: string): FileInfo | null 
  */
 async function loadFile(filename: string, root: string = currentRoot): Promise<void> {
   if (isLoadingFile || isSaving || isToolbarBusy) return;
-  if (isModified && !window.confirm('Discard unsaved changes and open another file?')) return;
+  if (currentFile === filename && currentRoot === root) return;
+  syncActiveTab();
   isLoadingFile = true;
   setEditorReadOnly(true);
   try {
      updateStatus('Loading...', '');
      clearValidationDetails();
 
-    const fileContent = await readFile(filename, root);
-
+    const cached = documents.tabs.get(tabKey(root, filename));
+    const fileContent = cached?.snapshot ? null : await readFile(filename, root);
+    if (cached?.snapshot) restoreEditor(cached.snapshot);
     await configureEditorForFile(filename);
-    setContent(fileContent.content, true);
+    if (fileContent) setContent(fileContent.content, true);
+    applyAppearanceSettings(getAppearanceSettings());
     currentFile = filename;
     currentRoot = root;
     selectedPath = root + '/' + filename;
-    isModified = false;
+    isModified = cached?.modified || false;
+    documents.tabs.set(tabKey(root, filename), { root, path: filename, modified: isModified, snapshot: captureEditor() });
+    documents.activate(tabKey(root, filename));
     if (saveBtnEl) saveBtnEl.setAttribute('aria-disabled', 'true');
     if (saveBtnMobileEl) saveBtnMobileEl.setAttribute('aria-disabled', 'true');
 
@@ -886,14 +939,17 @@ async function loadFile(filename: string, root: string = currentRoot): Promise<v
     // Save state
     saveState();
 
-    const sizeKB = (fileContent.size / 1024).toFixed(1);
-    updateStatus('Ready', `${sizeKB} KB`);
+    const sizeKB = ((fileContent?.size ?? new Blob([getContent()]).size) / 1024).toFixed(1);
+    updateStatus(isModified ? 'Modified' : 'Ready', `${sizeKB} KB`);
   } catch (error) {
     console.error('Error loading file:', error);
     updateStatus(`Failed to load ${filename}`, '', true);
   } finally {
     isLoadingFile = false;
     setEditorReadOnly(!currentFile);
+    const disabled = !isModified || !isDocumentValid;
+    saveBtnEl.setAttribute('aria-disabled', String(disabled));
+    saveBtnMobileEl.setAttribute('aria-disabled', String(disabled));
   }
 }
 
@@ -949,6 +1005,8 @@ async function handleSave(): Promise<void> {
   } finally {
     isSaving = false;
     setEditorReadOnly(!currentFile);
+    syncActiveTab();
+    documents.render();
     const disabled = !isModified || !isDocumentValid;
     saveBtnEl.setAttribute('aria-disabled', String(disabled));
     saveBtnMobileEl.setAttribute('aria-disabled', String(disabled));

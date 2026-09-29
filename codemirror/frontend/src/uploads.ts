@@ -1,8 +1,11 @@
-import { uploadFile } from './api';
+import { uploadFile, uploadFolder } from './api';
+import { compressFolder, droppedFolder, type FolderEntry } from './folder-upload';
 
 /** Folder-aware drop/picker upload with per-file errors and no silent overwrite. */
 export function initUploads(getDestination: () => { root: string; folder: string }, refresh: () => Promise<void>, isBlocked: () => boolean) {
   const sidebar = document.getElementById('sidebar')!;
+  const folderInput = document.getElementById('upload-folder-input') as HTMLInputElement;
+  const folderButton = document.getElementById('upload-folder-btn') as HTMLButtonElement;
   const input = document.getElementById('upload-input') as HTMLInputElement;
   const button = document.getElementById('upload-btn') as HTMLButtonElement;
   const results = document.getElementById('upload-results')!;
@@ -20,7 +23,7 @@ export function initUploads(getDestination: () => { root: string; folder: string
     if (uploading || isBlocked() || !files.length) return;
     const { root, folder: destination } = location;
     uploading = true;
-    button.disabled = true;
+    button.disabled = folderButton.disabled = true;
     results.replaceChildren();
     let successes = 0;
     try {
@@ -39,11 +42,40 @@ export function initUploads(getDestination: () => { root: string; folder: string
       report(`${successes}/${files.length} uploaded to /${root === 'local_apps' ? 'addons' : root}${destination ? '/' + destination : ''}`);
     } finally {
       uploading = false;
-      button.disabled = false;
+      button.disabled = folderButton.disabled = false;
       button.textContent = 'Upload files';
       input.value = '';
     }
   }
+
+  async function sendFolder(getEntries: () => Promise<FolderEntry[]>, location = getDestination()) {
+    if (uploading || isBlocked()) return;
+    uploading = true;
+    button.disabled = folderButton.disabled = true;
+    results.replaceChildren();
+    report('Compressing folder…');
+    try {
+      const entries = await getEntries();
+      const archive = await compressFolder(entries, maxBytes, (done, total) => {
+        results.replaceChildren(); report(`Compressing folder… ${done}/${total}`);
+      });
+      report('Uploading and extracting folder…');
+      const result = await uploadFolder(location.root, location.folder, archive);
+      await refresh();
+      results.replaceChildren(); report(`${result.path}: ${result.files} files uploaded`);
+    } catch (error) {
+      report(error instanceof Error ? error.message : 'Folder upload failed', true);
+    } finally {
+      uploading = false;
+      button.disabled = folderButton.disabled = false;
+      folderInput.value = '';
+    }
+  }
+  folderButton.addEventListener('click', () => folderInput.click());
+  folderInput.addEventListener('change', () => {
+    const files = Array.from(folderInput.files || []);
+    if (files.length) void sendFolder(async () => files.map(file => ({ path: file.webkitRelativePath, file })));
+  });
 
   button.addEventListener('click', () => input.click());
   input.addEventListener('change', () => void upload(Array.from(input.files || [])));
@@ -64,15 +96,18 @@ export function initUploads(getDestination: () => { root: string; folder: string
     sidebar.classList.remove('drop-active');
     if (uploading || isBlocked()) return;
     const items = Array.from(event.dataTransfer.items);
-    if (items.some((item) => item.webkitGetAsEntry?.()?.isDirectory)) {
-      results.replaceChildren();
-      report('Folder uploads are not supported. Select the files inside the folder.', true);
-      return;
-    }
     const target = (event.target as Element).closest<HTMLElement>('.tree-item.directory');
     const parts = target?.dataset.path?.split('/');
     const destination = parts ? { root: parts[0], folder: parts.slice(1).join('/') } : getDestination();
-    void upload(Array.from(event.dataTransfer.files), destination);
+    const directories = items.map(item => item.webkitGetAsEntry?.()).filter((entry): entry is FileSystemEntry => Boolean(entry?.isDirectory));
+    if (directories.length) {
+      if (directories.length !== 1 || items.length !== 1) {
+        results.replaceChildren(); report('Drop one folder at a time', true); return;
+      }
+      void sendFolder(() => droppedFolder(directories[0]), destination);
+    } else {
+      void upload(Array.from(event.dataTransfer.files), destination);
+    }
   }, true);
 
   return {

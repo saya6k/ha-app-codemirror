@@ -1,5 +1,5 @@
 name: CodeMirror
-version: "0.3.0"
+version: "0.4.0"
 slug: codemirror
 description: CodeMirror editor with Markdown preview, opt-in workspace access and drag-and-drop uploads
 arch:

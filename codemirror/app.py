@@ -83,7 +83,7 @@ def protect_request():
         if request.headers.get('X-CodeMirror-Request') != '1':
             raise Forbidden('Missing same-origin request header')
     request.max_content_length = (upload_limit() + 1024 * 1024
-                                  if request.path == '/api/upload'
+                                  if request.path in ('/api/upload', '/api/upload-folder')
                                   else 6 * filesystem.MAX_TEXT_BYTES + 1024)
 
 
@@ -328,6 +328,18 @@ def upload_file():
         size = filesystem.upload(root, request.form.get('directory', ''), files[0], upload_limit())
     logger.info('Uploaded file to workspace %s', request.args.get('root', 'config'))
     return jsonify({'success': True, 'filename': files[0].filename, 'size': size}), 201
+
+
+@app.route('/api/upload-folder', methods=['POST'])
+def upload_folder():
+    from archive_upload import extract_folder
+    root = selected_root()
+    files = request.files.getlist('file')
+    if len(files) != 1:
+        raise BadRequest('Send one folder ZIP per request')
+    with write_lock:
+        result = extract_folder(root, request.form.get('directory', ''), files[0].stream, upload_limit())
+    return jsonify(result), 201
 
 
 @app.errorhandler(HTTPException)

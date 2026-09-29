@@ -5,7 +5,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>CodeMirror</title>
-  <link rel="icon" href="data:,">
+  <link rel="icon" href="./icon.png">
   <link rel="stylesheet" href="./styles.css">
 
 </head>
@@ -22,7 +22,7 @@
               d="M12,16A2,2 0 0,1 14,18A2,2 0 0,1 12,20A2,2 0 0,1 10,18A2,2 0 0,1 12,16M12,10A2,2 0 0,1 14,12A2,2 0 0,1 12,14A2,2 0 0,1 10,12A2,2 0 0,1 12,10M12,4A2,2 0 0,1 14,6A2,2 0 0,1 12,8A2,2 0 0,1 10,6A2,2 0 0,1 12,4Z" />
             </svg>
             </div>
-            <h1>CodeMirror</h1>
+            <img class="brand-icon" src="./icon.png" alt=""><h1>CodeMirror</h1>
             <span class="filename" id="current-filename" aria-label="Current file">No file selected</span>
             </div>
             <div class="header-right">
@@ -74,6 +74,7 @@
       <button id="paste-entry-btn" role="menuitem" type="button">Paste</button>
       <hr>
       <button id="upload-btn" role="menuitem" type="button">Upload files</button>
+      <button id="upload-folder-btn" role="menuitem" type="button">Upload folder</button>
     </div>
     <dialog id="create-dialog" class="create-dialog" aria-labelledby="create-title">
       <form id="create-form">
@@ -101,6 +102,7 @@
           <button id="refresh-files" class="btn btn-secondary" type="button" aria-label="Refresh files">↻</button>
         </div>
         <input id="upload-input" type="file" multiple hidden>
+        <input id="upload-folder-input" type="file" webkitdirectory multiple hidden>
         <div id="upload-results" role="status" aria-live="polite"></div>
         <div id="file-list" class="file-list" role="tree" aria-label="Supported files">
           <div class="loading" aria-live="polite">Loading files...</div>
@@ -109,11 +111,12 @@
 
       <!-- Editor Container -->
       <main class="editor-container" aria-label="Code editor">
+        <div id="document-tabs" class="document-tabs" role="tablist" aria-label="Open files"></div>
         <div class="document-tools">
           <span id="document-hint">Choose a file to start editing</span>
           <button id="preview-btn" class="btn btn-secondary" type="button" aria-pressed="false" hidden>Preview Markdown</button>
         </div>
-        <div id="editor-split" class="editor-split">
+        <div id="editor-split" class="editor-split" role="tabpanel" aria-labelledby="current-filename">
         <div id="editor" class="editor" role="textbox" aria-label="Configuration file editor" aria-multiline="true"></div>
 
         <article id="markdown-preview" class="markdown-preview" aria-label="Markdown preview" hidden></article>
@@ -203,6 +206,7 @@
               <div class="appearance-controls">
                 <section class="appearance-section">
                   <h3>Color &amp; guides</h3>
+                <div class="appearance-setting"><label for="appearance-language">Language</label><select id="appearance-language"><option value="auto">Automatic</option><option value="en">English</option><option value="ko">한국어</option></select></div>
                 <div class="appearance-setting"><label for="appearance-theme">Theme</label><select id="appearance-theme">
                     <option value="auto">Automatic</option>
                     <option value="light">Light</option>

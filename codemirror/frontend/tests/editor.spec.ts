@@ -66,12 +66,12 @@ test('unified roots preserve unsaved changes and restore cross-root files', asyn
   await page.locator('[data-path="config/other.md"]').click();
   await page.locator('.cm-content').fill('# Unsaved');
   await page.locator('[data-path="media"]').click();
-  page.once('dialog', dialog => dialog.dismiss());
-  await page.locator('[data-path="media/media.md"]').click();
-  await expect(page.locator('.cm-content')).toContainText('Unsaved');
-  page.once('dialog', dialog => dialog.accept());
   await page.locator('[data-path="media/media.md"]').click();
   await expect(page.locator('.cm-content')).toContainText('Media workspace');
+  await page.getByRole('tab', { name: 'other.md •', exact: true }).click();
+  await expect(page.locator('.cm-content')).toContainText('Unsaved');
+  await page.getByRole('tab', { name: 'media.md', exact: true }).click();
+  page.once('dialog', dialog => dialog.accept());
   await page.reload();
   await expect(page.locator('.cm-content')).toContainText('Media workspace');
 });
@@ -96,7 +96,6 @@ test('invalid YAML and JSON cannot be saved; valid state restores', async ({ pag
   await expect(page.locator('#status-message')).toContainText('Invalid');
   await page.locator('#validation-details-restore').click();
   await expect(page.locator('.cm-content')).toContainText('name: Home');
-  page.once('dialog', dialog => dialog.accept());
   await page.locator('[data-path="config/data.json"]').click();
   await expect(page.locator('#current-filename')).toHaveText('data.json');
   await page.locator('.cm-content').fill('{');
@@ -108,7 +107,6 @@ test('switching files clears undo history', async ({ page }) => {
   await page.locator('[data-path="config/other.md"]').click();
   await expect(page.locator('#current-filename')).toHaveText('other.md');
   await page.locator('.cm-content').fill('# Private draft');
-  page.once('dialog', dialog => dialog.accept());
   await page.locator('[data-path="config/guide.md"]').click();
   await expect(page.locator('#current-filename')).toHaveText('guide.md');
   const content = await page.locator('.cm-content').textContent();
@@ -127,7 +125,6 @@ test('save failures remain visible and invalid documents stay blocked', async ({
   await page.locator('#save-btn').click();
   await expect(page.locator('#status-message')).toContainText('Failed to save');
   await expect(page.locator('.cm-content')).toContainText('Keep this draft');
-  page.once('dialog', dialog => dialog.accept());
   await page.locator('[data-path="config/data.json"]').click();
   await expect(page.locator('#current-filename')).toHaveText('data.json');
   await page.locator('.cm-content').fill('{');

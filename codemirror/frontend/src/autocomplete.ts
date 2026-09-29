@@ -1,3 +1,4 @@
+import { text } from './i18n';
 /**
  * Simple autocomplete for Home Assistant entities
  * Module-scoped state for entity management
@@ -55,7 +56,7 @@ export function entityCompletions(context: CompletionContext): CompletionResult 
     options: matches.map(id => {
       const entity = entityMetadata.get(id)!;
       return { label: id, type: 'variable', detail: `${entity.friendly_name} · ${entity.state_translated ?? entity.state}`,
-        info: `Domain: ${entity.domain}\nState: ${entity.state_translated ?? entity.state}` };
+        info: `${text('Domain', '도메인')}: ${entity.domain}\n${text('State', '상태')}: ${entity.state_translated ?? entity.state}` };
     }),
   };
 }

@@ -11,13 +11,14 @@ APP = ROOT / 'codemirror'
 def package():
     files = [APP / name for name in (
         'Dockerfile', '.dockerignore', 'config.yaml', 'requirements.txt',
-        'app.py', 'filesystem.py', 'file_actions.py', 'run.sh', 'LICENSE.md', 'README.md',
+        'app.py', 'filesystem.py', 'file_actions.py', 'archive_upload.py', 'run.sh', 'LICENSE.md', 'README.md',
+        'icon.png', 'logo.png',
         'DOCS.md', 'CHANGELOG.md',
         'frontend/package.json', 'frontend/package-lock.json',
         'frontend/index.html', 'frontend/styles.css',
         'frontend/tsconfig.json', 'frontend/vite.config.ts',
     )]
-    for directory in ('frontend/src', 'translations'):
+    for directory in ('frontend/src', 'frontend/public', 'branding', 'translations'):
         files.extend(sorted(path for path in (APP / directory).rglob('*') if path.is_file()))
     for required in files + [APP / 'frontend/src/main.ts']:
         if not required.is_file() or required.is_symlink():

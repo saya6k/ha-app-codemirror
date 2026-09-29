@@ -35,7 +35,7 @@ test('new directory and new file use selected folder, reject duplicates and open
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
 });
 
-test('new file keeps unsaved editor content when discard is cancelled', async ({ page }) => {
+test('new file preserves unsaved editor content in its original tab', async ({ page }) => {
   await page.goto('/');
   await page.locator('#app-actions summary').click();
   await page.locator('[data-path="config/other.md"]').click();
@@ -44,9 +44,10 @@ test('new file keeps unsaved editor content when discard is cancelled', async ({
   await page.getByRole('button', { name: 'File actions', exact: true }).click();
   await page.getByRole('menuitem', { name: 'New file', exact: true }).click();
   await page.getByLabel('Name', { exact: true }).fill('keep-draft.md');
-  page.once('dialog', dialog => dialog.dismiss());
   await page.getByRole('button', { name: 'Create', exact: true }).click();
-  // Creation succeeds, but opening the new file must respect the existing guard.
+  await expect(page.locator('#current-filename')).toHaveText('keep-draft.md');
+  await page.getByRole('tab', { name: 'other.md •', exact: true }).click();
+  // The draft remains available when the new file opens in a separate tab.
   await expect(page.locator('.cm-content')).toContainText('draft');
   await expect(page.locator('[data-path="config/keep-draft.md"]')).toBeVisible();
 });

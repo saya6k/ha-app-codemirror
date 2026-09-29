@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.4.0
+
+- Added Automatic, Korean and English UI language choices, including CodeMirror
+  search/replace phrases, with browser-local persistence.
+- Added document tabs that retain drafts, cursor/selection, scroll and undo state;
+  dirty tab close confirmation and protections apply to inactive tabs too.
+- Use the unmodified official CodeMirror logo for icon.png/logo.png, with the
+  upstream SVG and MIT license retained and a reproducible rasterization script.
+- Folder picker and folder drop uploads now compress to ZIP in the browser and
+  extract into staging on the server before exclusive publication.
+- Archive validation rejects traversal, links, duplicate/conflicting paths,
+  encrypted/unsupported ZIPs and excessive expansion. Existing folders are kept.
+
+
 ## 0.3.0
 
 - Replaced workspace/folder selectors with a single tree containing all enabled roots.

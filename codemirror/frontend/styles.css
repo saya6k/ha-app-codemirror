@@ -1118,3 +1118,15 @@ button:disabled { opacity: 0.5; cursor: wait; }
   .header-left .filename { overflow: hidden; text-overflow: ellipsis; }
   :root { --workspace-top: 50px; }
 }
+
+.brand-icon { width: 30px; height: 30px; object-fit: contain; flex-shrink: 0; }
+.document-tabs { display: flex; overflow-x: auto; flex-shrink: 0; min-height: 0; background: var(--bg-secondary); border-bottom: 1px solid var(--border-color); }
+.document-tabs:empty { display: none; }
+.document-tab { display: flex; flex-shrink: 0; border-right: 1px solid var(--border-color); border-top: 2px solid transparent; max-width: 240px; }
+.document-tab.active { background: var(--bg-primary); border-top-color: var(--accent-color, #03a9f4); }
+.document-tab button { border: none; background: transparent; color: var(--text-secondary); cursor: pointer; padding: 9px 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.document-tab.active button { color: var(--text-primary); }
+.document-tab .close-tab { flex-shrink: 0; padding: 6px 10px; font-size: 18px; }
+.document-tab button:hover { background: var(--bg-tertiary); }
+.document-tab button:focus-visible { outline: 2px solid var(--accent-color, #03a9f4); outline-offset: -2px; }
+@media (max-width: 768px) { .brand-icon { width: 24px; height: 24px; } .document-tab { max-width: 190px; } }

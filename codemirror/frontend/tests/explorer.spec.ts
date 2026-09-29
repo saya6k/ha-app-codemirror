@@ -97,15 +97,15 @@ test('arrow navigation keeps the selected directory as creation target', async (
   await expect(page.locator('#create-location')).toContainText('/config/docs');
 });
 
-test('failed reopen after rename cannot save to the old path', async ({ page }) => {
+test('rename preserves the saved tab without depending on another read', async ({ page }) => {
   await page.goto('/');
   await page.locator('[data-path="config/other.md"]').click();
   await expect(page.locator('#current-filename')).toHaveText('other.md');
   await page.route('**/api/files/reopen-failed.md?root=config', route => route.fulfill({ status: 403, json: { error: 'Read denied' } }));
   page.once('dialog', dialog => dialog.accept('reopen-failed.md'));
   await menu(page, 'config/other.md', 'Rename');
-  await expect(page.locator('#status-message')).toContainText('could not reopen');
-  await expect(page.locator('.cm-content')).not.toBeEditable();
+  await expect(page.locator('#current-filename')).toHaveText('reopen-failed.md');
+  await expect(page.locator('.cm-content')).toBeEditable();
   await expect(page.locator('#save-btn')).toHaveAttribute('aria-disabled', 'true');
   await expect(page.locator('[data-path="config/other.md"]')).toHaveCount(0);
   await expect(page.locator('[data-path="config/reopen-failed.md"]')).toBeVisible();

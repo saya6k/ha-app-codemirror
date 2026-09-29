@@ -1,3 +1,4 @@
+import { isKorean, codeMirrorKorean } from './i18n';
 /**
  * CodeMirror 6 editor setup with YAML and JSON support
  */
@@ -179,6 +180,7 @@ function validateDocument(state: EditorState): { result: DocumentValidationResul
 let editorView: EditorView | null = null;
 export type EditorFileType = 'yaml' | 'json' | 'python' | 'shell' | 'markdown' | 'text';
 let currentFileType: EditorFileType = 'yaml';
+const localeCompartment = new Compartment();
 const basicSetupCompartment = new Compartment();
 const readOnlyCompartment = new Compartment();
 const themeCompartment = new Compartment();
@@ -472,6 +474,7 @@ export function createEditor(parent: HTMLElement, settings: EditorSettings = def
   const startState = EditorState.create({
     doc: '',
     extensions: [
+      localeCompartment.of(EditorState.phrases.of(isKorean() ? codeMirrorKorean : {})),
       basicSetupCompartment.of(basicSetup),
       readOnlyCompartment.of([EditorState.readOnly.of(true), EditorView.editable.of(false)]),
       ...(window.matchMedia('(pointer: coarse)').matches ? [scrollPastEnd()] : []),
@@ -528,6 +531,7 @@ export function createEditor(parent: HTMLElement, settings: EditorSettings = def
       }
     };
     window.addEventListener('theme-changed', themeChangeHandler);
+    window.addEventListener('language-changed', applyEditorLanguage);
 
      return editorView;
 }
@@ -768,4 +772,29 @@ export function showEntityCompletions(): boolean {
   if (!editorView || currentFileType !== 'yaml' || editorView.state.readOnly) return false;
   editorView.focus();
   return startCompletion(editorView);
+}
+
+export interface EditorSnapshot {
+  state: EditorState;
+  fileType: EditorFileType;
+  lastValid: string | null;
+  scrollTop: number;
+}
+export function captureEditor(): EditorSnapshot | null {
+  return editorView ? { state: editorView.state, fileType: currentFileType, lastValid: lastValidContent, scrollTop: editorView.scrollDOM.scrollTop } : null;
+}
+export function restoreEditor(snapshot: EditorSnapshot): void {
+  if (!editorView) return;
+  currentFileType = snapshot.fileType;
+  lastValidContent = snapshot.lastValid;
+  cachedValidationDoc = null; cachedValidation = null;
+  currentValidationResult = { isValid: true, errors: [], warnings: [] };
+  editorView.setState(snapshot.state);
+  editorView.scrollDOM.scrollTop = snapshot.scrollTop;
+  updateTheme();
+  applyEditorLanguage();
+}
+
+export function applyEditorLanguage(): void {
+  editorView?.dispatch({ effects: localeCompartment.reconfigure(EditorState.phrases.of(isKorean() ? codeMirrorKorean : {})) });
 }

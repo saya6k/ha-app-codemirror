@@ -301,3 +301,15 @@ export async function entryAction(root: string, path: string, action: 'move' | '
   const data = await response.json();
   if (!response.ok) throw new Error(data.error || 'File operation failed');
 }
+
+export async function uploadFolder(root: string, directory: string, archive: Blob): Promise<{ path: string; files: number }> {
+  const body = new FormData();
+  body.append('directory', directory);
+  body.append('file', archive, 'folder.zip');
+  const response = await fetch(`${API_BASE}/upload-folder?root=${encodeURIComponent(root)}`, {
+    method: 'POST', headers: { 'X-CodeMirror-Request': '1' }, body,
+  });
+  const result = await response.json();
+  if (!response.ok) throw new Error(result.error || 'Folder upload failed');
+  return result;
+}
