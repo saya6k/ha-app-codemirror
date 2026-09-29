@@ -1,0 +1,771 @@
+/**
+ * CodeMirror 6 editor setup with YAML and JSON support
+ */
+
+import { EditorView, basicSetup } from 'codemirror';
+import { EditorState, Compartment, RangeSetBuilder, Transaction, type Extension, type Text } from '@codemirror/state';
+import { Decoration, DecorationSet, ViewPlugin, ViewUpdate, keymap, scrollPastEnd } from '@codemirror/view';
+import { yaml } from '@codemirror/lang-yaml';
+import { autocompletion, startCompletion } from '@codemirror/autocomplete';
+import { oneDark } from '@codemirror/theme-one-dark';
+import { linter, Diagnostic } from '@codemirror/lint';
+import { indentLess, indentMore, undo, redo, undoDepth, redoDepth } from '@codemirror/commands';
+import { indentUnit, StreamLanguage } from '@codemirror/language';
+import { parseDocument, type YAMLError as YAMLParserError } from 'yaml';
+import { entityCompletions, isValidEntity } from './autocomplete';
+import { isDark } from './theme';
+import type { EditorSettings } from './api';
+import type { AppearanceSettings } from './appearance';
+
+export interface DocumentValidationResult {
+  isValid: boolean;
+  errors: string[];
+  warnings: string[];
+}
+
+let currentValidationResult: DocumentValidationResult = { isValid: true, errors: [], warnings: [] };
+let lastValidContent: string | null = null;
+let cachedValidationDoc: Text | null = null;
+let cachedValidation: { result: DocumentValidationResult; diagnostics: Diagnostic[] } | null = null;
+
+export function getValidationResult(): DocumentValidationResult {
+  return currentValidationResult;
+}
+
+export function restoreLastValidContent(): boolean {
+  if (lastValidContent !== null && editorView) {
+    // False means don't skip history, so the user can undo the restore if they change their mind
+    setContent(lastValidContent, false);
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Validate document syntax and entities
+ */
+function formatYamlError(error: YAMLParserError): string {
+  return error.message;
+}
+
+function yamlErrorDiagnostic(error: YAMLParserError, docLength: number): Diagnostic {
+  const from = Math.min(error.pos[0], docLength);
+  const to = Math.min(Math.max(error.pos[1], from), docLength);
+
+  return {
+    from,
+    to,
+    severity: 'error',
+    message: formatYamlError(error),
+  };
+}
+
+function jsonErrorDiagnostic(error: SyntaxError, docLength: number): Diagnostic {
+  const position = error.message.match(/position (\d+)/i);
+  const from = Math.min(position ? Number(position[1]) : 0, docLength);
+
+  return {
+    from,
+    to: Math.min(from + 1, docLength),
+    severity: 'error',
+    message: error.message,
+  };
+}
+
+/** Validate the full document and cache the result for the immutable editor text. */
+function validateDocument(state: EditorState): { result: DocumentValidationResult; diagnostics: Diagnostic[] } {
+  if (cachedValidationDoc === state.doc && cachedValidation) {
+    currentValidationResult = cachedValidation.result;
+    return cachedValidation;
+  }
+
+  const errors: string[] = [];
+  const warnings: string[] = [];
+  const diagnostics: Diagnostic[] = [];
+  const docText = state.doc.toString();
+  if (currentFileType === 'json') {
+    try {
+      JSON.parse(docText);
+    } catch (error) {
+      const jsonError = error instanceof SyntaxError ? error : new SyntaxError(String(error));
+      errors.push(jsonError.message);
+      diagnostics.push(jsonErrorDiagnostic(jsonError, state.doc.length));
+    }
+  } else {
+    const parsedDocument = parseDocument(docText, { strict: true });
+
+    for (const error of parsedDocument.errors) {
+      errors.push(formatYamlError(error));
+      diagnostics.push(yamlErrorDiagnostic(error, state.doc.length));
+    }
+  }
+
+  const lines = currentFileType === 'yaml' ? docText.split('\n') : [];
+  let inEntitiesList = false;
+  
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    
+    const entityIdMatch = line.match(/(?:entity_id|entity)\s*:\s*['"]?([^'"\s#]+)['"]?/);
+    if (entityIdMatch) {
+      const entityId = entityIdMatch[1];
+      // Only check if it looks like an entity ID (has a dot) to avoid false positives on other YAML keys
+      if (entityId.includes('.') && entityId.match(/^[a-z_]+\.[a-z0-9_]+$/)) {
+        if (!isValidEntity(entityId)) {
+          warnings.push(`Line ${i + 1}: Entity '${entityId}' not found (may be disabled or missing)`);
+        }
+      } else if (entityId !== '') {
+        // It matched entity_id: something, but it's not a valid format
+        // We'll add a warning instead of an error to be safe, or we could add an error.
+        // The user asked "Can we determine if there is not valid entity and not existing/disabled?"
+        warnings.push(`Line ${i + 1}: Invalid entity ID format '${entityId}'`);
+      }
+    }
+    
+    // Check for lists under entities:
+    if (line.match(/^\s*entities\s*:/)) {
+      inEntitiesList = true;
+      continue;
+    }
+    
+    if (inEntitiesList) {
+      if (line.match(/^\s*-/)) {
+        // We only want to match plain strings, not object keys like "- entity: ..."
+        // A simple heuristic: no colon in the string
+        const listItemMatch = line.match(/^\s*-\s*['"]?([^'"\s#:]+)['"]?/);
+        if (listItemMatch) {
+          const entityId = listItemMatch[1];
+          if (entityId.match(/^[a-z_]+\.[a-z0-9_]+$/)) {
+            if (!isValidEntity(entityId)) {
+              warnings.push(`Line ${i + 1}: Entity '${entityId}' not found (may be disabled or missing)`);
+            }
+          } else {
+             warnings.push(`Line ${i + 1}: Invalid entity ID format '${entityId}'`);
+          }
+        }
+      } else if (line.trim() !== '' && !line.match(/^\s*#/)) {
+        // Exited the list if indentation is 0
+        if (!line.match(/^\s+/)) {
+          inEntitiesList = false;
+        }
+      }
+    }
+  }
+
+  const isValid = errors.length === 0;
+  
+  if (isValid) {
+    lastValidContent = docText;
+  }
+
+  const result = {
+    isValid,
+    errors,
+    warnings
+  };
+
+  currentValidationResult = result;
+  cachedValidationDoc = state.doc;
+  cachedValidation = { result, diagnostics };
+
+  // Dispatch custom event for the UI
+  window.dispatchEvent(new CustomEvent('editor-validation', { 
+    detail: result
+  }));
+
+  return cachedValidation;
+}
+
+let editorView: EditorView | null = null;
+export type EditorFileType = 'yaml' | 'json' | 'python' | 'shell' | 'markdown' | 'text';
+let currentFileType: EditorFileType = 'yaml';
+const basicSetupCompartment = new Compartment();
+const readOnlyCompartment = new Compartment();
+const themeCompartment = new Compartment();
+const languageCompartment = new Compartment();
+const indentationCompartment = new Compartment();
+const linterCompartment = new Compartment();
+const autocompleteCompartment = new Compartment();
+const rainbowIndentThemeCompartment = new Compartment();
+const indentationGuidesCompartment = new Compartment();
+const rainbowBracketsCompartment = new Compartment();
+const lineWrappingCompartment = new Compartment();
+const defaultEditorSettings: EditorSettings = {
+  indent_style: 'spaces',
+  indent_opacity: 100,
+};
+
+/** Return the editor language selected from a supported filename. */
+export function getEditorFileType(filename: string): EditorFileType {
+  const extension = filename.toLowerCase().split('.').pop();
+  if (extension === 'json') return 'json';
+  if (extension === 'py') return 'python';
+  if (extension === 'sh') return 'shell';
+  if (extension === 'md' || extension === 'markdown') return 'markdown';
+  if (extension === 'yaml' || extension === 'yml') return 'yaml';
+  return 'text';
+}
+
+async function loadLanguageExtension(fileType: EditorFileType): Promise<Extension> {
+  if (fileType === 'text') return [];
+  if (fileType === 'markdown') {
+    const { markdown } = await import('@codemirror/lang-markdown');
+    return markdown();
+  }
+  if (fileType === 'json') {
+    const { json } = await import('@codemirror/lang-json');
+    return json();
+  }
+  if (fileType === 'python') {
+    const { python } = await import('@codemirror/lang-python');
+    return python();
+  }
+  if (fileType === 'shell') {
+    const { shell } = await import('@codemirror/legacy-modes/mode/shell');
+    return StreamLanguage.define(shell);
+  }
+  return yaml();
+}
+
+function indentationExtension(fileType: EditorFileType) {
+  const spaces = fileType === 'python' ? '    ' : '  ';
+  const size = spaces.length;
+  return [
+    indentUnit.of(spaces),
+    EditorState.tabSize.of(size),
+    EditorView.theme({ '&': { tabSize: size } }),
+  ];
+}
+let editorSettings: EditorSettings = defaultEditorSettings;
+let themeChangeHandler: ((e: Event) => void) | null = null;
+let saveShortcutHandler: ((e: KeyboardEvent) => void) | null = null;
+
+/**
+ * iOS WebKit zooms focused editable text smaller than 16px.
+ */
+function getEffectiveFontSize(fontSize: number): number {
+  return window.matchMedia('(pointer: coarse)').matches
+    ? Math.max(16, fontSize)
+    : fontSize;
+}
+
+const toolbarScrollMargins = EditorView.scrollMargins.of((view) => {
+  const toolbar = document.getElementById('editor-toolbar');
+  if (!toolbar || getComputedStyle(toolbar).display === 'none') return null;
+  if (getComputedStyle(toolbar).position !== 'fixed') return null;
+
+  const editorRect = view.dom.getBoundingClientRect();
+  const toolbarRect = toolbar.getBoundingClientRect();
+  return {
+    bottom: Math.max(0, editorRect.bottom - toolbarRect.top + 8),
+  };
+});
+
+/**
+ * Rainbow brackets extension
+ * Colors matching brackets with different colors based on nesting level
+ */
+interface RainbowBracketsValue {
+  decorations: DecorationSet;
+}
+
+const rainbowBrackets = ViewPlugin.fromClass(
+   class {
+     decorations: DecorationSet;
+
+     constructor(view: EditorView) {
+       this.decorations = this.buildDecorations(view);
+     }
+
+     update(update: ViewUpdate) {
+       if (update.docChanged || update.viewportChanged) {
+         this.decorations = this.buildDecorations(update.view);
+       }
+     }
+
+     buildDecorations(view: EditorView): DecorationSet {
+       const builder = new RangeSetBuilder<Decoration>();
+       const brackets = '[]{}()';
+       const colors = ['rainbow-bracket-1', 'rainbow-bracket-2', 'rainbow-bracket-3', 'rainbow-bracket-4'];
+       const stack: number[] = [];
+
+       for (const { from, to } of view.visibleRanges) {
+         const text = view.state.doc.sliceString(from, to);
+
+         for (let i = 0; i < text.length; i++) {
+           const char = text[i];
+           const pos = from + i;
+
+           if (char === '[' || char === '{' || char === '(') {
+             const level = stack.length % colors.length;
+             builder.add(pos, pos + 1, Decoration.mark({ class: colors[level] }));
+             stack.push(brackets.indexOf(char));
+           } else if (char === ']' || char === '}' || char === ')') {
+             stack.pop();
+             const level = stack.length % colors.length;
+             builder.add(pos, pos + 1, Decoration.mark({ class: colors[level] }));
+           }
+         }
+       }
+
+       return builder.finish();
+     }
+   },
+   {
+     decorations: (v: RainbowBracketsValue) => v.decorations,
+   }
+);
+
+interface IndentationGuidesValue {
+  decorations: DecorationSet;
+}
+
+/**
+ * Rainbow indentation using colored spaces or non-layout line overlays.
+ */
+const indentationGuides = ViewPlugin.fromClass(
+  class {
+    decorations: DecorationSet;
+
+    constructor(view: EditorView) {
+      this.decorations = this.buildDecorations(view);
+    }
+
+    update(update: ViewUpdate) {
+      if (
+        update.docChanged ||
+        update.viewportChanged ||
+        update.transactions.some((transaction) => transaction.reconfigured)
+      ) {
+        this.decorations = this.buildDecorations(update.view);
+      }
+    }
+
+    buildDecorations(view: EditorView): DecorationSet {
+      const builder = new RangeSetBuilder<Decoration>();
+
+      for (const { from, to } of view.visibleRanges) {
+        for (let pos = from; pos <= to; ) {
+          const line = view.state.doc.lineAt(pos);
+          const text = line.text;
+
+          // Count leading spaces
+          let spaces = 0;
+          for (let i = 0; i < text.length; i++) {
+            if (text[i] === ' ') {
+              spaces++;
+            } else {
+              break;
+            }
+          }
+
+          // Render each pair of spaces as one indentation level.
+          if (spaces > 0) {
+            if (editorSettings.indent_style === 'lines') {
+              const guideLayers: string[] = [];
+              for (let i = 0; i < spaces; i += 2) {
+                const level = Math.floor(i / 2) % 4;
+                guideLayers.push(
+                  `linear-gradient(var(--indent-color-${level}), var(--indent-color-${level})) ${i + 0.5}ch 0 / 1px 100% no-repeat`
+                );
+              }
+              builder.add(
+                line.from,
+                line.from,
+                Decoration.line({
+                  class: 'cm-indent-lines',
+                  attributes: {
+                    style: `--indent-guides: ${guideLayers.join(',')}`,
+                  },
+                })
+              );
+            } else {
+              for (let i = 0; i < spaces; i += 2) {
+                const level = Math.floor(i / 2) % 4;
+                const from = line.from + i;
+                const to = line.from + Math.min(i + 2, spaces);
+
+                builder.add(
+                  from,
+                  to,
+                  Decoration.mark({
+                    class: `indent-rainbow-${level}`,
+                  })
+                );
+              }
+            }
+          }
+
+          pos = line.to + 1;
+        }
+      }
+
+      return builder.finish();
+    }
+  },
+  {
+    decorations: (v: IndentationGuidesValue) => v.decorations,
+  }
+);
+
+/**
+ * Base theme for rainbow brackets (applies to both light and dark)
+ */
+const rainbowBracketsTheme = EditorView.baseTheme({
+  '.rainbow-bracket-1': { color: '#ffd700' },
+  '.rainbow-bracket-2': { color: '#da70d6' },
+  '.rainbow-bracket-3': { color: '#87cefa' },
+  '.rainbow-bracket-4': { color: '#98fb98' },
+});
+
+/**
+ * Build indentation guide styles while preserving the current light/dark
+ * color strength at 100% opacity.
+ */
+function createIndentTheme(dark: boolean): ReturnType<typeof EditorView.theme> {
+  const colors = [
+    [255, 215, 0, dark ? 0.15 : 0.4],
+    [218, 112, 214, dark ? 0.12 : 0.35],
+    [135, 206, 250, dark ? 0.18 : 0.45],
+    [152, 251, 152, dark ? 0.15 : 0.4],
+  ];
+  const opacity = editorSettings.indent_opacity / 100;
+  const styles: Record<string, Record<string, string>> = { '&': {} };
+
+  colors.forEach(([red, green, blue, baseOpacity], index) => {
+    const color = `rgba(${red}, ${green}, ${blue}, ${baseOpacity * opacity})`;
+    styles['&'][`--indent-color-${index}`] = color;
+    styles[`.indent-rainbow-${index}`] = {
+      backgroundColor: color,
+      borderRadius: '0',
+      display: 'inline-block',
+      minHeight: '1.2em',
+    };
+  });
+
+  styles['.cm-line'] = {
+    position: 'relative',
+  };
+  styles['.cm-indent-lines::before'] = {
+    content: '""',
+    position: 'absolute',
+    inset: '0',
+    background: 'var(--indent-guides)',
+    pointerEvents: 'none',
+  };
+
+  return EditorView.theme(styles, { dark });
+}
+
+/**
+ * YAML linter that validates YAML syntax
+ */
+function yamlLinter(view: EditorView): Diagnostic[] {
+  return validateDocument(view.state).diagnostics;
+}
+
+/**
+ * Create and initialize the editor
+ */
+export function createEditor(parent: HTMLElement, settings: EditorSettings = defaultEditorSettings): EditorView {
+  editorSettings = settings;
+  const startState = EditorState.create({
+    doc: '',
+    extensions: [
+      basicSetupCompartment.of(basicSetup),
+      readOnlyCompartment.of([EditorState.readOnly.of(true), EditorView.editable.of(false)]),
+      ...(window.matchMedia('(pointer: coarse)').matches ? [scrollPastEnd()] : []),
+       languageCompartment.of(yaml()),
+       linterCompartment.of(linter(yamlLinter)),
+      indentationGuidesCompartment.of(indentationGuides),
+      rainbowBracketsCompartment.of(rainbowBrackets),
+      rainbowBracketsTheme,
+       autocompleteCompartment.of(autocompletion({
+         override: [entityCompletions],
+         activateOnTyping: true,
+       })),
+       // Increase/decrease indentation using the active language's whitespace unit.
+       keymap.of([
+         { key: 'Tab', run: indentMore },
+         { key: 'Shift-Tab', run: indentLess }
+       ]),
+       indentationCompartment.of(indentationExtension('yaml')),
+      EditorView.contentAttributes.of({
+        autocorrect: "off",
+        autocapitalize: "off",
+        spellcheck: "false",
+        enterkeyhint: "enter",
+        inputmode: "text",
+        autocomplete: "new-password" // More aggressive way to hide iOS autofill bar
+      }),
+      toolbarScrollMargins,
+      themeCompartment.of(isDark() ? oneDark : []),
+      rainbowIndentThemeCompartment.of(createIndentTheme(isDark())),
+      lineWrappingCompartment.of(EditorView.lineWrapping),
+       EditorView.updateListener.of((update) => {
+         if (update.docChanged) {
+           // Notify that content has changed
+           window.dispatchEvent(new Event('editor-changed'));
+          }
+       }),
+    ],
+  });
+
+   editorView = new EditorView({
+     state: startState,
+      parent,
+    });
+
+    editorView.dom.style.fontSize = `${getEffectiveFontSize(14)}px`;
+
+    // Listen for theme changes (store handler for cleanup)
+    themeChangeHandler = (e: Event) => {
+      if (editorView) {
+        // Use the theme value from the event to avoid race conditions in WebView
+        const customEvent = e as CustomEvent<{ dark: boolean }>;
+        const isDarkMode = customEvent.detail?.dark ?? isDark();
+        updateTheme(isDarkMode);
+      }
+    };
+    window.addEventListener('theme-changed', themeChangeHandler);
+
+     return editorView;
+}
+
+/** Reconfigure syntax, indentation, validation, and autocomplete for a file. */
+export async function configureEditorForFile(filename: string): Promise<void> {
+  if (!editorView) return;
+
+  const fileType = getEditorFileType(filename);
+  currentFileType = fileType;
+  cachedValidationDoc = null;
+  cachedValidation = null;
+  const isStructuredDocument = fileType === 'yaml' || fileType === 'json';
+  const language = await loadLanguageExtension(fileType);
+
+  // A newer selection may have started while the parser was loading.
+  if (currentFileType !== fileType || !editorView) return;
+
+  editorView.dispatch({
+    effects: [
+      languageCompartment.reconfigure(language),
+      indentationCompartment.reconfigure(indentationExtension(fileType)),
+      linterCompartment.reconfigure(isStructuredDocument ? linter(yamlLinter) : []),
+      autocompleteCompartment.reconfigure(fileType === 'yaml' ? autocompletion({
+        override: [entityCompletions],
+        activateOnTyping: true,
+      }) : []),
+    ],
+  });
+
+  if (!isStructuredDocument) {
+    currentValidationResult = { isValid: true, errors: [], warnings: [] };
+    window.dispatchEvent(new CustomEvent('editor-validation', {
+      detail: currentValidationResult,
+    }));
+  }
+}
+
+/** Re-run the active file type's local validation after loading or before saving. */
+export function validateCurrentDocument(): DocumentValidationResult {
+  if (editorView && (currentFileType === 'yaml' || currentFileType === 'json')) {
+    return validateDocument(editorView.state).result;
+  }
+  return currentValidationResult;
+}
+
+/**
+ * Apply browser appearance settings without recreating the editor.
+ */
+export function applyAppearanceSettings(settings: AppearanceSettings): void {
+  editorSettings = settings;
+  if (!editorView) return;
+
+  editorView.dom.style.fontSize = `${getEffectiveFontSize(settings.fontSize)}px`;
+  editorView.dispatch({
+    effects: [
+      rainbowIndentThemeCompartment.reconfigure(createIndentTheme(isDark())),
+      indentationGuidesCompartment.reconfigure(indentationGuides),
+      rainbowBracketsCompartment.reconfigure(settings.rainbowBrackets ? rainbowBrackets : []),
+      lineWrappingCompartment.reconfigure(settings.lineWrapping ? EditorView.lineWrapping : []),
+    ],
+  });
+}
+
+/**
+ * Get the current editor instance
+ */
+export function getEditor(): EditorView | null {
+  return editorView;
+}
+
+/**
+ * Set editor content
+ */
+export function setContent(content: string, skipHistory: boolean = false): void {
+   if (!editorView) return;
+
+   const changeSpec = {
+     changes: {
+       from: 0,
+       to: editorView.state.doc.length,
+       insert: content,
+     },
+   };
+
+   // Don't add to undo history when loading files
+   if (skipHistory) {
+     // Removing and restoring basicSetup reinitializes its history field.
+     // Merely marking a load addToHistory=false would preserve the previous file undo stack.
+     editorView.dispatch({ effects: basicSetupCompartment.reconfigure([]) });
+     editorView.dispatch({
+       effects: basicSetupCompartment.reconfigure(basicSetup),
+       ...changeSpec,
+       annotations: Transaction.addToHistory.of(false),
+     });
+     // Also reset the last valid content to this new content when loading
+     lastValidContent = content;
+   } else {
+     editorView.dispatch(changeSpec);
+   }
+}
+
+/**
+ * Get editor content
+ */
+export function getContent(): string {
+  if (!editorView) return '';
+  return editorView.state.doc.toString();
+}
+
+/**
+ * Update editor theme
+ * @param isDarkMode - Optional theme state to use. If not provided, uses isDark() function.
+ *                     Accepting parameter avoids race conditions in WebView environments.
+ */
+function updateTheme(isDarkMode?: boolean): void {
+   if (!editorView) {
+     return;
+   }
+
+   // Use provided value or fall back to isDark() function
+   const dark = isDarkMode !== undefined ? isDarkMode : isDark();
+   
+   editorView.dispatch({
+     effects: [
+       themeCompartment.reconfigure(dark ? oneDark : []),
+        rainbowIndentThemeCompartment.reconfigure(createIndentTheme(dark)),
+     ],
+   });
+}
+
+/**
+ * Focus the editor
+ */
+export function focusEditor(): void {
+  if (editorView) {
+    editorView.focus();
+  }
+}
+
+/**
+ * Keep the current selection visible when an overlay toolbar moves above it.
+ */
+export function scrollEditorSelectionIntoView(): void {
+  if (!editorView) return;
+
+  editorView.dispatch({
+    effects: EditorView.scrollIntoView(editorView.state.selection.main.head),
+  });
+}
+
+/**
+ * Register save shortcut (Ctrl+S / Cmd+S)
+ */
+export function registerSaveShortcut(callback: () => void): void {
+    if (!editorView) return;
+
+    // Remove old handler if it exists
+    if (saveShortcutHandler) {
+      editorView.dom.removeEventListener('keydown', saveShortcutHandler);
+    }
+
+    // Store handler for cleanup and prevent duplicate listeners
+    saveShortcutHandler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+        e.preventDefault();
+        callback();
+      }
+    };
+
+    editorView.dom.addEventListener('keydown', saveShortcutHandler);
+}
+
+/**
+ * Execute undo command
+ */
+export function editorUndo(): boolean {
+  if (!editorView) return false;
+  return undo(editorView);
+}
+
+/**
+ * Execute redo command
+ */
+export function editorRedo(): boolean {
+  if (!editorView) return false;
+  return redo(editorView);
+}
+
+/**
+ * Execute indent command
+ */
+export function editorIndent(): boolean {
+  if (!editorView) return false;
+  return indentMore(editorView);
+}
+
+/**
+ * Execute dedent command
+ */
+export function editorDedent(): boolean {
+  if (!editorView) return false;
+  return indentLess(editorView);
+}
+
+/**
+ * Check if undo is available
+ */
+export function canEditorUndo(): boolean {
+   if (!editorView) return false;
+   
+   // Use CodeMirror's built-in undoDepth function
+   // Returns the number of undo events in the history
+   return undoDepth(editorView.state) > 0;
+}
+
+/**
+ * Check if redo is available
+ */
+export function canEditorRedo(): boolean {
+   if (!editorView) return false;
+   
+   // Use CodeMirror's built-in redoDepth function
+   // Returns the number of redo events in the history
+   return redoDepth(editorView.state) > 0;
+}
+
+
+/** Prevent edits before file selection and while loading another file. */
+export function setEditorReadOnly(readOnly: boolean): void {
+  editorView?.dispatch({ effects: readOnlyCompartment.reconfigure([
+    EditorState.readOnly.of(readOnly), EditorView.editable.of(!readOnly),
+  ]) });
+}
+
+/** Explicitly show the dropdown at the cursor, including empty YAML values. */
+export function showEntityCompletions(): boolean {
+  if (!editorView || currentFileType !== 'yaml' || editorView.state.readOnly) return false;
+  editorView.focus();
+  return startCompletion(editorView);
+}

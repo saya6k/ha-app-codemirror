@@ -1,0 +1,11 @@
+frontend/node_modules
+frontend/tests
+frontend/test-results
+frontend/playwright-report
+static
+tests
+test-config
+__pycache__
+# TypeScript sources are required by the frontend build.
+!frontend/src/
+!frontend/src/**

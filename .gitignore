@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+node_modules/
+codemirror/static/
+test-results/
+playwright-report/
+.env
+.DS_Store
+dist/
