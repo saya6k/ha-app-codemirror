@@ -1,3 +1,4 @@
+---
 configuration:
   allow_local_apps:
     name: Allow local apps

@@ -1,7 +1,9 @@
+---
 name: CodeMirror
-version: "0.5.1"
+version: dev
 slug: codemirror
 description: CodeMirror editor with Markdown preview, opt-in workspace access and drag-and-drop uploads
+url: https://github.com/saya6k/ha-app-codemirror
 arch:
   - aarch64
   - amd64

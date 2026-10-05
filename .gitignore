@@ -1,10 +1,24 @@
+# Agent scaffolding (AGENTS.md, .agents/, .claude/, .gemini/, and the
+# CLAUDE.md / GEMINI.md symlinks) is per-developer tooling, not repo content.
+# It stays on disk locally and is never tracked.
+AGENTS.md
+CLAUDE.md
+GEMINI.md
+.agents/
+.claude/
+.gemini/
+# AI working state — design notes and plan, not project docs
+SPEC.md
+tasks/
+# Python
 .venv/
 __pycache__/
 *.pyc
+# Node / frontend build
 node_modules/
 codemirror/static/
 test-results/
 playwright-report/
+dist/
 .env
 .DS_Store
-dist/

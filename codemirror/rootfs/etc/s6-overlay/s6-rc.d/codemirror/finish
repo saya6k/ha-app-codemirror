@@ -1,0 +1,13 @@
+#!/usr/bin/with-contenv bash
+# shellcheck shell=bash
+exitcode="${1:-0}"
+signal="${2:-0}"
+echo "[codemirror] stopped (exit=${exitcode}, signal=${signal})"
+
+# Crash -> stop the whole add-on gracefully instead of s6 restart-looping.
+# 256 means "killed by a signal", which is the normal container-stop path.
+if [ "${exitcode}" -ne 0 ] && [ "${exitcode}" -ne 256 ]; then
+  echo "${exitcode}" > /run/s6-linux-init-container-results/exitcode
+  exec /run/s6/basedir/bin/halt
+fi
+exit 0
