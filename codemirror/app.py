@@ -45,6 +45,7 @@ OPTIONS_FILE = Path(os.getenv('OPTIONS_FILE', '/data/options.json'))
 DEFAULT_SETTINGS = {'indent_style': 'spaces', 'indent_opacity': 100}
 write_lock = Lock()
 ha_control_lock = Lock()
+template_lock = Lock()
 
 
 def read_options():
@@ -136,7 +137,7 @@ def health():
 
 @app.route('/api/settings')
 def get_settings():
-    """Return validated editor settings from Home Assistant add-on options."""
+    """Return validated editor settings from Home Assistant app options."""
     settings = DEFAULT_SETTINGS.copy()
 
     try:
@@ -158,7 +159,7 @@ def get_settings():
     return jsonify(settings), 200
 
 
-def ha_request(method, path, *, supervisor=False, timeout=60, payload=None):
+def ha_request(method, path, *, supervisor=False, timeout=60, payload=None, plain_text=False):
     """Call a fixed internal API path. Never retry a potentially mutating request."""
     if not TOKEN:
         raise ServiceUnavailable('Home Assistant supervisor token is not configured')
@@ -170,18 +171,48 @@ def ha_request(method, path, *, supervisor=False, timeout=60, payload=None):
         else:
             response = requests.post(f'{base}{path}', headers=headers, json=payload or {}, timeout=(5, timeout))
         response.raise_for_status()
-        return response.json()
+        return response.text if plain_text else response.json()
     except requests.Timeout:
         raise GatewayTimeout('Home Assistant request timed out. Completion is unknown; check HA before retrying.') from None
     except requests.HTTPError as error:
         status = error.response.status_code if error.response is not None else 502
         if status in (401, 403):
             raise Forbidden('Home Assistant API access denied. Check homeassistant_api, hassio_api and hassio_role.') from None
+        if plain_text and status == 400:
+            try:
+                body = error.response.json()
+                message = body.get('message') if isinstance(body, dict) else None
+            except ValueError:
+                message = None
+            detail = message if isinstance(message, str) else 'Home Assistant could not render this template'
+            raise BadRequest(detail.replace(TOKEN, '[redacted]')[:2000]) from None
         raise BadGateway(f'Home Assistant API returned HTTP {status}') from None
     except requests.RequestException:
         raise BadGateway('Could not connect to Home Assistant API; the request was not retried') from None
     except ValueError:
         raise BadGateway('Home Assistant returned invalid JSON') from None
+
+
+@app.route('/api/template', methods=['POST'])
+def render_template():
+    body = request.get_json(silent=True)
+    template = body.get('template') if isinstance(body, dict) else None
+    if not isinstance(template, str) or not template.strip():
+        raise BadRequest('Provide a non-empty template string')
+    try:
+        size = len(template.encode('utf-8'))
+    except UnicodeEncodeError:
+        raise BadRequest('Template must contain valid Unicode') from None
+    if size > 65536:
+        raise BadRequest('Template exceeds the 64 KiB limit')
+    if not template_lock.acquire(blocking=False):
+        raise Conflict('Another template is rendering. Try again shortly.')
+    try:
+        result = ha_request('POST', '/template', timeout=10,
+                            payload={'template': template}, plain_text=True)
+        return jsonify({'result': result})
+    finally:
+        template_lock.release()
 
 
 def check_saved_config():
@@ -210,7 +241,7 @@ def get_entities():
                          'friendly_name': name if isinstance(name, str) else state['entity_id'],
                          'domain': state['entity_id'].split('.')[0]})
     if entities:
-        # A fixed server-owned template; never execute a template supplied by a browser.
+        # Entity translation always uses a fixed server-owned template.
         template = ('{ {% for s in states %}{{ s.entity_id | to_json }}: '
                     '{{ state_translated(s.entity_id) | to_json }}'
                     '{% if not loop.last %},{% endif %}{% endfor %} }')
@@ -246,7 +277,14 @@ def validate_config():
 
 @app.route('/api/ha/<action>', methods=['POST'])
 def control_home_assistant(action):
-    if action not in ('restart', 'reload'):
+    reloads = {
+        'reload': ('homeassistant/reload_all', 'Reload request completed for reloadable YAML configuration.'),
+        'reload-automations': ('automation/reload', 'Automations reload completed.'),
+        'reload-scripts': ('script/reload', 'Scripts reload completed.'),
+        'reload-groups': ('group/reload', 'Groups reload completed.'),
+        'reload-core': ('homeassistant/reload_core_config', 'Core configuration reload completed.'),
+    }
+    if action != 'restart' and action not in reloads:
         raise NotFound('Unknown Home Assistant action')
     if not ha_control_lock.acquire(blocking=False):
         raise Conflict('Another Home Assistant action is already running')
@@ -261,10 +299,10 @@ def control_home_assistant(action):
                 raise BadGateway('Supervisor could not complete the restart request')
             message = 'Home Assistant restart request completed. The UI may reconnect shortly.'
         else:
-            result = ha_request('POST', '/services/homeassistant/reload_all', timeout=90)
+            service, message = reloads[action]
+            result = ha_request('POST', '/services/' + service, timeout=90)
             if not isinstance(result, list):
                 raise BadGateway('Home Assistant returned an invalid reload response')
-            message = 'Reload request completed for reloadable YAML configuration.'
         logger.info('Home Assistant %s request completed', action)
         return jsonify({'success': True, 'message': message})
     finally:
@@ -294,6 +332,18 @@ def entry_action():
     with write_lock:
         operate(root, data.get('path'), data.get('action'), target, data.get('destination'))
     return jsonify({'success': True})
+
+
+@app.route('/api/directory')
+def list_directory():
+    root = selected_root()
+    try:
+        offset = int(request.args.get('offset', '0'))
+    except ValueError:
+        raise BadRequest('Invalid directory offset')
+    if offset < 0:
+        raise BadRequest('Invalid directory offset')
+    return jsonify(filesystem.directory_page(root, request.args.get('path', ''), offset))
 
 
 @app.route('/api/files')

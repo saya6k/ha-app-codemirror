@@ -16,7 +16,7 @@
 - **UI 언어**: 자동·한국어·영어, CodeMirror 검색/바꾸기 UI 포함
 - CodeMirror 공식 브랜딩 `icon.png`, `logo.png`
 - **Markdown** (`.md`, `.markdown`) 구문 강조, 저장, 안전한 분할 미리보기
-- **추가 마운트 접근을 개별 opt-in**: local apps, media, addon configs, ssl, share
+- **추가 마운트 접근을 개별 opt-in**: local apps, media, app configs, ssl, share
 - **여러 파일 드래그 앤 드롭 업로드**, 폴더 선택, 파일 선택 버튼, 결과 표시
 - **통합 파일 트리**, 우클릭 새 파일·폴더/이름 변경/삭제/잘라내기·복사·붙여넣기
 - **⋯ 메뉴**에서 YAML 검사, HA YAML 리로드·Core 재시작
@@ -30,16 +30,15 @@
 python3 scripts/package_app.py
 ```
 
-생성된 `dist/codemirror-0.4.0.tar.gz`를 HA의 로컬 앱 상위 디렉터리(`/addons` 또는
+생성된 `dist/codemirror-0.5.1.tar.gz`를 HA의 로컬 앱 상위 디렉터리(`/addons` 또는
 `/apps`)에 풀면 `codemirror/` 폴더가 생성됩니다. 기존 앱을 업데이트할 때에도
 `.dockerignore`를 포함해 전체 내용을 덮어쓰세요. 이후 앱 스토어를 새로고침하고
-0.4.0을 설치/업데이트합니다. 압축 파일에는 소스가 들어 있고 의존성은 빌드 시 설치합니다.
+0.5.1을 설치/업데이트합니다. 압축 파일에는 소스가 들어 있고 의존성은 빌드 시 설치합니다.
 
 1. 이 저장소의 `codemirror` 폴더를 Home Assistant의 로컬 앱 디렉터리에 복사합니다.
    일반적인 경로는 `/addons/codemirror`이며, 환경에서 로컬 앱 경로를 `/apps`로
    제공하면 그 아래에 복사합니다.
 2. Home Assistant **설정 → 앱 → 앱 스토어**에서 새로고침/업데이트 확인을 실행합니다.
-   구버전에서는 앱 메뉴가 **애드온**으로 표시됩니다.
 3. **Local apps → CodeMirror**를 설치하고 시작합니다.
 4. **웹 UI 열기** 또는 사이드바에서 접속합니다.
 
@@ -72,8 +71,8 @@ allow_share: true
 max_upload_mb: 32
 ```
 
-Home Assistant의 공식 마운트 종류인 `addons`를 `/addons`에,
-`all_addon_configs`를 `/addon_configs`에 연결합니다. 호스트의 로컬 앱 폴더가
+Home Assistant의 공식 마운트 종류인 `local_apps`를 `/addons`에,
+`all_app_configs`를 `/addon_configs`에 연결합니다. 호스트의 로컬 앱 폴더가
 어떻게 표시되는지와 무관하게 앱 내부의 local apps 경로는 `/addons`입니다.
 설정 정의: [codemirror/config.yaml](codemirror/config.yaml).
 
@@ -180,7 +179,7 @@ docker build -t ha-codemirror codemirror
 
 보안 경계·구현 기준은 [명세](docs/SPEC.md), 상세 사용법은
 [앱 문서](codemirror/DOCS.md)를 참조하세요. 텍스트 편집은 4 MiB까지,
-파일 트리는 10,000개 항목·32단계까지 지원합니다. 심볼릭 링크·하드 링크·특수 파일은
+파일 트리는 펼친 디렉토리만 조회하며 500개 단위로 더 불러옵니다. 심볼릭 링크·하드 링크·특수 파일은
 접근하지 않으며 `.git`, `.storage`, `node_modules`, `__pycache__`는 트리에서 제외합니다.
 
 ### Docker 빌드에서 TS18003이 발생하는 경우

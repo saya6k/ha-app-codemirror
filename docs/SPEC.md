@@ -125,8 +125,8 @@ Publishing/deployment is outside this implementation request.
   confirmed in the UI. Unsaved affected documents must be saved first.
 - A fixed Core `/template` request evaluates `state_translated(s.entity_id)` for
   states. The entity API adds optional `state_translated`; suggestions prefer it
-  and fall back to raw `state`. Entity IDs are never translated. No browser-supplied
-  templates or arbitrary upstream endpoints are accepted.
+  and fall back to raw `state`. Entity IDs are never translated. The entity API
+  never accepts browser-supplied templates or arbitrary upstream endpoints.
 
 ## 0.4.0: localization, branding, tabs and folder archives
 
@@ -150,3 +150,64 @@ Publishing/deployment is outside this implementation request.
   Existing folders are never merged. Empty directories are preserved by the drop
   API; webkitdirectory pickers may omit empty directories.
 - Git initialized on main, with the original 0.3.0 source captured as the initial commit.
+
+
+## 0.4.1: incremental directory discovery
+
+- Explorer uses `GET /api/directory?root=<id>&path=<relative>&offset=<n>`.
+  It returns `{entries: FileInfo[], next_offset: number|null}` and performs no
+  recursive descent. Existing `/api/files` remains a bounded recursive legacy API.
+- Each page examines at most 500 directory entries after skipping the offset;
+  excluded/vanished entries may leave a short or empty page with a next offset.
+  Offsets use filesystem enumeration order, not a snapshot. Refresh after external
+  mutations; ordering is sorted across loaded entries in the browser.
+- Root opt-in and descriptor-based path/link protection apply to every page.
+  A deep, large or unreadable descendant cannot fail its parent's listing.
+- Render roots immediately, load expanded directories independently, cache until
+  explicit/mutation refresh, and discard stale responses after refresh.
+- Restore the saved document without waiting for tree discovery or entity state
+  translations. Directory fetches time out after 15 seconds. Errors appear below
+  the directory as escaped, wrapping text with an explicit retry button.
+
+## 0.5.0: Home Assistant template preview
+
+### MDI icon completion and preview
+
+- YAML and JSON `mdi:` tokens offer at most 80 canonical icon names, matching
+  substrings with prefix matches first. Preserve quotes and replace the complete
+  token when completion starts in the middle. Suppress entity suggestions there.
+- Display actual SVG glyphs in completion options and larger previews in completion
+  info/hover tooltips. Ignore unknown names and comments; support keyboard selection
+  and mobile list previews using theme colors.
+- Build a name/path catalog from pinned official `@mdi/svg` 7.4.47 (7,447 icons).
+  Load it once through a local dynamic import on first icon interaction; no CDN
+  calls or HA requests. Emit the upstream license as `MDI-LICENSE.txt` in the build.
+- Catalog size is approximately 2.7 MB (807 kB gzipped); it is a separate lazy chunk
+  and is not part of editor startup. The installed HA release may use a different
+  icon version. Source: https://pictogrammers.com/docs/contribute/third-party/
+
+### Home Assistant controls and templates
+
+The Home Assistant menu also exposes `POST /api/ha/reload-automations`,
+`reload-scripts`, `reload-groups` and `reload-core`, mapped to fixed services
+`automation.reload`, `script.reload`, `group.reload` and
+`homeassistant.reload_core_config`. All retain configuration validation,
+unsaved-tab protection, the shared control lock and no automatic retry.
+A normal link to `https://materialdesignicons.com` opens a new tab with
+`noopener noreferrer`, including on mobile.
+
+- `POST /api/template` accepts `{template: string}` (nonblank, valid Unicode,
+  at most 64 KiB UTF-8) and returns `{result: string}` preserving plain text.
+  Use the fixed Supervisor Core `/template` endpoint with a 10-second read timeout,
+  existing Ingress/header protection and one concurrent rendering request.
+- Render the unsaved selection, or the entire buffer if nothing is selected.
+  YAML is not parsed into individual templates. Show scope, loading, empty results,
+  HA template errors, connection errors and a rerun action in a mobile-ready panel.
+- After 700 ms hovering a single-line `{{ ... }}` expression, show an inert tooltip.
+  Parse quoted delimiters and nested dictionary braces; skip documents containing
+  block/comment tags since they may define context or raw regions. Cache only the
+  last successful hover result for five seconds; explicit panel runs remain fresh.
+- Abort/discard obsolete results after editing, tooltip dismissal or document
+  navigation. Never insert result HTML or translate rendered HA output.
+- HA states/functions are available; automation runtime variables are not injected.
+  Rendering does not save files, reload configuration, or execute automations.

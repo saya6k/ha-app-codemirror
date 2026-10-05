@@ -1,4 +1,6 @@
 import { isKorean, codeMirrorKorean } from './i18n';
+import { templateHover } from './template-hover';
+import { mdiCompletions, mdiHover, mdiOptionPreview } from './mdi';
 /**
  * CodeMirror 6 editor setup with YAML and JSON support
  */
@@ -474,6 +476,8 @@ export function createEditor(parent: HTMLElement, settings: EditorSettings = def
   const startState = EditorState.create({
     doc: '',
     extensions: [
+      templateHover,
+      mdiHover,
       localeCompartment.of(EditorState.phrases.of(isKorean() ? codeMirrorKorean : {})),
       basicSetupCompartment.of(basicSetup),
       readOnlyCompartment.of([EditorState.readOnly.of(true), EditorView.editable.of(false)]),
@@ -484,7 +488,8 @@ export function createEditor(parent: HTMLElement, settings: EditorSettings = def
       rainbowBracketsCompartment.of(rainbowBrackets),
       rainbowBracketsTheme,
        autocompleteCompartment.of(autocompletion({
-         override: [entityCompletions],
+         override: [mdiCompletions, entityCompletions],
+         addToOptions: [mdiOptionPreview],
          activateOnTyping: true,
        })),
        // Increase/decrease indentation using the active language's whitespace unit.
@@ -555,8 +560,9 @@ export async function configureEditorForFile(filename: string): Promise<void> {
       languageCompartment.reconfigure(language),
       indentationCompartment.reconfigure(indentationExtension(fileType)),
       linterCompartment.reconfigure(isStructuredDocument ? linter(yamlLinter) : []),
-      autocompleteCompartment.reconfigure(fileType === 'yaml' ? autocompletion({
-        override: [entityCompletions],
+      autocompleteCompartment.reconfigure(isStructuredDocument ? autocompletion({
+        override: fileType === 'yaml' ? [mdiCompletions, entityCompletions] : [mdiCompletions],
+        addToOptions: [mdiOptionPreview],
         activateOnTyping: true,
       }) : []),
     ],

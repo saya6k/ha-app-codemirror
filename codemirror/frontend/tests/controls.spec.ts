@@ -5,6 +5,52 @@ const entities = [
   { entity_id: 'sensor.living_temperature', friendly_name: '거실 온도', domain: 'sensor', state: '23' },
 ];
 
+test('individual reloads use the selected action and protect unsaved edits', async ({ page }) => {
+  const called: string[] = [];
+  await page.route('**/api/ha/*', async route => {
+    called.push(route.request().url().split('/').pop()!);
+    await route.fulfill({ json: { success: true, message: 'Reload completed' } });
+  });
+  await page.goto('/');
+  await page.locator('#app-actions summary').click();
+  const actions = [
+    ['Reload automations', 'reload-automations'], ['Reload scripts', 'reload-scripts'],
+    ['Reload groups', 'reload-groups'], ['Reload Core configuration', 'reload-core'],
+  ];
+  for (const [label, action] of actions) {
+    await page.getByRole('button', { name: label, exact: true }).click();
+    await expect(page.locator('#status-message')).toHaveText('Reload completed');
+    expect(called.at(-1)).toBe(action);
+  }
+  await page.locator('[data-path="config/configuration.yaml"]').click();
+  await page.locator('.cm-content').fill('homeassistant:\n  name: Unsaved');
+  for (const [label] of actions) {
+    await page.getByRole('button', { name: label, exact: true }).click();
+    await expect(page.locator('#status-message')).toContainText('Save your changes');
+  }
+  expect(called).toHaveLength(4);
+});
+
+test('mobile reload menu and icon library link are reachable', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 320, height: 740 });
+  await page.goto('/');
+  await page.locator('#app-actions summary').click();
+  for (const label of ['Reload automations', 'Reload scripts', 'Reload groups', 'Reload Core configuration']) {
+    await expect(page.getByRole('button', { name: label, exact: true })).toBeVisible();
+  }
+  const link = page.getByRole('link', { name: 'Material Design Icons' });
+  await expect(link).toHaveAttribute('href', 'https://materialdesignicons.com');
+  await expect(link).toHaveAttribute('target', '_blank');
+  await expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+  await link.focus();
+  await expect(link).toBeFocused();
+  const bounds = await link.boundingBox();
+  expect(bounds!.x).toBeGreaterThanOrEqual(0);
+  expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(320);
+  expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(740);
+  await page.screenshot({ path: testInfo.outputPath('reload-menu-mobile.png') });
+});
+
 test.beforeEach(async ({ page }) => {
   await page.route('**/api/entities', route => route.fulfill({ json: entities }));
 });

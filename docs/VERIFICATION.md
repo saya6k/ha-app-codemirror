@@ -2,7 +2,7 @@
 
 Verified locally on 2026-09-29 with Python 3.12 and Node.js 22 / Chrome.
 
-- Backend: 36 Python unittest tests passed. Coverage includes default denial,
+- Backend: 44 Python unittest tests passed. Coverage includes default denial,
   independent opt-in/revocation for all five mounts, malformed options, Markdown
   round trips, backups with mode/owner preservation, traversal and symlink/hardlink
   rejection, binary and Unicode uploads, conflicts, size limits, Ingress checks,
@@ -11,7 +11,7 @@ Verified locally on 2026-09-29 with Python 3.12 and Node.js 22 / Chrome.
   upstream endpoints, concurrent action rejection,
   malformed responses, denied/missing credentials and timeout/no-retry behavior.
 - Frontend: TypeScript checking and Vite production build passed.
-- Browser: 26 Playwright tests passed against the production build and an isolated
+- Browser: 36 Playwright tests passed against the production build and an isolated
   Flask fixture server. Tested Markdown rendering/saving/persistence, picker and
   drop uploads, root switching, unsaved edits, preview sanitization, YAML/JSON
   validation, history isolation, save errors and 320/768/1024px responsive layouts.
@@ -83,3 +83,54 @@ HA API tests use mocks and do not establish live integration success.
 
 Run instructions are in the root [README](../README.md). Browser screenshots and
 failure traces are generated under `codemirror/frontend/test-results/` (ignored).
+
+
+## 0.4.1 loading regression coverage
+
+- A 35-level `/share` subtree reproduces failure in the legacy recursive listing;
+  the shallow explorer endpoint returns its parent successfully. Pagination returns
+  all 512 direct entries without duplicates; opt-in, traversal and link checks pass.
+- Browser tests hold both an expanded mount request and entity translation pending:
+  config children and the saved Markdown document still appear before release.
+- Collapsed roots trigger no listing request until expanded. Directory errors show
+  readable messages and recover through Retry; Load more preserves earlier pages.
+- Actual user `/share` error text and live HA startup timing were unavailable; the
+  reproduced recursive-limit failure is a plausible cause, not a confirmed diagnosis
+  of that mount. Docker/HA runtime verification remains outstanding.
+
+## 0.5.0 template preview coverage
+
+- Template endpoint tests cover plain-text preservation (including empty, numeric,
+  HTML and Korean output), fixed upstream path, Unicode/size/input validation,
+  Ingress and request-header denial, missing credentials, HA template errors,
+  timeouts, connection failures and concurrent-request rejection/lock release.
+- Chrome tests cover unsaved selection versus entire-document rendering, errors
+  and rerun, inert output, hover with quoted delimiters, malformed expressions,
+  block-context exclusion, stale-response disposal and panel reset on navigation.
+- Korean controls preserve raw HA output. Screenshots and geometry assertions cover
+  320/768/1024/1440px widths, including clearance above the floating mobile toolbar.
+- Home Assistant responses are mocked. Live Supervisor template evaluation and
+  Docker execution remain unverified in this environment.
+
+## Individual reloads and icon library link
+
+- All 44 backend tests pass, including each fixed reload service, configuration
+  prechecks and shared-lock rejection. The production build passes.
+- All seven controls browser tests pass, including four individual reloads,
+  unsaved-edit protection and the external icon link's URL/new-tab attributes.
+  Inspected the 320px mobile menu screenshot and checked link bounds and focus.
+- Reload services are mocked; no live Home Assistant reload was performed.
+
+## MDI completion and previews
+
+- Production build and TypeScript checks pass. Official `@mdi/svg` 7.4.47 is pinned;
+  npm installation reported zero known vulnerabilities. Build output includes
+  all 7,447 icon paths and the upstream `MDI-LICENSE.txt` notice.
+- Five MDI browser tests cover typed prefixes, glyphs, middle-of-token JSON
+  replacement, hover, unknown names, comment exclusion, entity separation,
+  keyboard selection, local on-demand loading and 320px dark-mode previews.
+  Seven existing controls tests also pass with icon completion enabled.
+- The catalog is an intentional 2.7 MB lazy chunk (approximately 807 kB gzipped),
+  producing Vite's chunk-size warning. Browser checks confirm no catalog request
+  at editor startup, one request on first use, reuse thereafter, and no external
+  requests. Screenshots were inspected for mobile completion and hover previews.

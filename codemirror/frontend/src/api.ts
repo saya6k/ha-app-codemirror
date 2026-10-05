@@ -18,6 +18,9 @@ export interface FileInfo {
   modified?: string;
   children?: FileInfo[];
   editable?: boolean;
+  loading?: boolean;
+  error?: string;
+  nextOffset?: number | null;
 }
 
 export interface FileContent {
@@ -37,9 +40,21 @@ export interface EditorSettings {
   indent_opacity: number;
 }
 
-// API base uses relative path for Home Assistant add-on compatibility
+// API base uses relative path for Home Assistant app compatibility
 // Works correctly in iOS WebView and all other environments
 const API_BASE = './api';
+
+export async function renderTemplate(template: string, signal: AbortSignal): Promise<string> {
+  const response = await fetch(`${API_BASE}/template`, {
+    method: 'POST', credentials: 'same-origin', signal,
+    headers: { 'Content-Type': 'application/json', 'X-CodeMirror-Request': '1' },
+    body: JSON.stringify({ template }),
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+  if (typeof data.result !== 'string') throw new Error('Invalid template response');
+  return data.result;
+}
 
 /**
  * Encode file path for URL with proper handling of slashes
@@ -80,7 +95,7 @@ export async function fetchEntities(): Promise<Entity[]> {
 }
 
 /**
- * Fetch editor settings configured in the Home Assistant add-on options.
+ * Fetch editor settings configured in the Home Assistant app options.
  */
 export async function fetchSettings(): Promise<EditorSettings> {
   const response = await fetch(`${API_BASE}/settings`, {
@@ -100,27 +115,16 @@ export async function fetchSettings(): Promise<EditorSettings> {
 /**
  * Fetch list of configuration files
  */
-export async function fetchFiles(root: string = 'config'): Promise<FileInfo[]> {
-  const url = `${API_BASE}/files?root=${encodeURIComponent(root)}`;
-  
-  try {
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: {
-        'Accept': 'application/json',
-      },
-      credentials: 'same-origin',
-      mode: 'cors'
-    });
-    
-    if (!response.ok) {
-      const errorText = await response.text().catch(() => '');
-      throw new Error(`Failed to fetch files: ${response.statusText}${errorText ? ` - ${errorText}` : ''}`);
-    }
-    return response.json();
-  } catch (error) {
-    throw error;
+export async function fetchFiles(root = 'config', path = '', offset = 0): Promise<{ entries: FileInfo[]; next_offset: number | null }> {
+  const query = new URLSearchParams({ root, path, offset: String(offset) });
+  const response = await fetch(`${API_BASE}/directory?${query}`, {
+    credentials: 'same-origin', signal: AbortSignal.timeout(15000),
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(typeof body.error === 'string' ? body.error : `HTTP ${response.status}`);
   }
+  return response.json();
 }
 
 /**
@@ -282,7 +286,9 @@ export async function createEntry(root: string, directory: string, name: string,
   return data;
 }
 
-export async function runHAAction(action: 'restart' | 'reload'): Promise<{ success: boolean; message: string }> {
+export type HAAction = 'restart' | 'reload' | 'reload-automations' | 'reload-scripts' | 'reload-groups' | 'reload-core';
+
+export async function runHAAction(action: HAAction): Promise<{ success: boolean; message: string }> {
   const response = await fetch(`${API_BASE}/ha/${action}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-CodeMirror-Request': '1' },

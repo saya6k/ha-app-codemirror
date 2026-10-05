@@ -28,6 +28,7 @@ export function entityCompletions(context: CompletionContext): CompletionResult 
   const word = context.matchBefore(/[\p{L}\p{N}_.]+/u);
   const line = context.state.doc.lineAt(context.pos);
   const before = line.text.slice(0, context.pos - line.from);
+  if (/mdi:[a-z0-9-]*$/.test(before)) return null;
   if (before.trimStart().startsWith('#')) return null;
   let entityValue = /\b(entity_id|entity|entities)\s*:\s*[^#]*$/.test(before);
   // Support block lists beneath entity_id/entities, including an empty list item.

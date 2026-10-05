@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.5.1
+
+- Replace legacy Supervisor map types with `local_apps` and `all_app_configs`
+  to eliminate deprecation warnings while preserving mount paths and permissions.
+
+## 0.5.0
+
+- Complete `mdi:` icon names in YAML/JSON with actual SVG glyphs in suggestions
+  and hover previews, using a locally bundled, on-demand MDI catalog.
+- Add individual reload actions for automations, scripts, groups and Core YAML
+  configuration, plus a Material Design Icons link in the Home Assistant menu.
+- Render unsaved Jinja templates using live Home Assistant states, with a selection
+  or whole-document result panel and hover previews for standalone expressions.
+- Show template errors inline; keep results inert and discard responses after edits
+  or navigation. Korean controls and mobile preview are supported.
+## 0.4.1
+
+- Load expanded directories on demand, with 500-entry pages, instead of scanning
+  all mounted directory trees before showing files.
+- Restore the last document independently of directory and entity API requests.
+- Show readable directory errors with a retry button; slow or unavailable mounts
+  no longer delay other roots. Directory requests time out after 15 seconds.
+
 ## 0.4.0
 
 - Added Automatic, Korean and English UI language choices, including CodeMirror

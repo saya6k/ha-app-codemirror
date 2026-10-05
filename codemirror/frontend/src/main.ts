@@ -9,6 +9,7 @@ import { setEntities } from './autocomplete';
 import { getAppearanceSettings, initAppearance } from './appearance';
 import { formatDocument } from './formatter';
 import { initMarkdownPreview } from './markdown';
+import { initTemplatePreview } from './template-preview';
 import { initUploads } from './uploads';
 import { initToolbar } from './toolbar';
 import { initExplorerActions } from './explorer-actions';
@@ -18,13 +19,14 @@ import { createTabs, tabKey } from './tabs';
 // Application state
 initLanguage();
 let currentFile: string | null = null;
+let resetTemplatePreview = () => {};
 let currentRoot = 'config';
 let roots: Workspace[] = [];
 let selectedPath = 'config';
 function splitPath(path: string) { const [root, ...rest] = path.split('/'); return { root, path: rest.join('/') }; }
 function selectedFolder() {
   const node = findNodeByPath(files, selectedPath);
-  const path = node?.type === 'file' ? selectedPath.slice(0, selectedPath.lastIndexOf('/')) : selectedPath;
+  const path = (node?.type === 'file' || (currentFile !== null && selectedPath === currentRoot + '/' + currentFile)) ? selectedPath.slice(0, selectedPath.lastIndexOf('/')) : selectedPath;
   const location = splitPath(path);
   return { root: location.root, folder: location.path };
 }
@@ -404,7 +406,8 @@ async function init(): Promise<void> {
       initAppearance(editorSettings);
 
       // Create editor
-      createEditor(editorEl, editorSettings);
+      const view = createEditor(editorEl, editorSettings);
+      resetTemplatePreview = initTemplatePreview(view, () => !!currentFile && !isLoadingFile);
       initToolbar({
         context: () => ({ ...selectedFolder(), file: currentFile, modified: hasUnsavedTabs() }),
         isBusy: () => isSaving || isLoadingFile || isToolbarBusy || uploads.isBusy(),
@@ -416,6 +419,8 @@ async function init(): Promise<void> {
           selectedPath = root + (folder ? '/' + folder : '');
           expandParentDirectories(selectedPath + '/');
           renderFileList();
+          const node = findNodeByPath(files, selectedPath);
+          if (node && !node.children) void loadDirectory(node);
         },
         status: updateStatus,
         details: (title, message) => setValidationDetails(title, message, false),
@@ -599,50 +604,18 @@ async function init(): Promise<void> {
     restoreState();
     expandedDirs.add(currentRoot);
 
-    // Load initial data
-    await Promise.all([
-      loadFiles(),
-      loadEntities(),
-    ]);
-
-    // Restore last opened file
+    // HA entity translation and unrelated mounts must not delay opening a file.
+    void loadEntities();
     const savedFile = localStorage.getItem(STORAGE_KEY_CURRENT_FILE);
-    if (savedFile) {
-      // Check if the file still exists in the tree
-      if (fileExists(currentRoot + '/' + savedFile)) {
-        // Expand parent directories to show the file
-        expandParentDirectories(currentRoot + '/' + savedFile);
-        renderFileList();
-        await loadFile(savedFile);
-      } else {
-        // File no longer exists, clear saved state
-        localStorage.removeItem(STORAGE_KEY_CURRENT_FILE);
-      }
-    }
+    if (savedFile) expandParentDirectories(currentRoot + '/' + savedFile);
+    void loadFiles();
+    if (savedFile) await loadFile(savedFile);
 
     updateStatus('Ready', '');
   } catch (error) {
     console.error('Initialization error:', error);
     updateStatus('Initialization failed', '', true);
   }
-}
-
-/**
- * Check if a file path exists in the file tree
- */
-function fileExists(path: string): boolean {
-  function search(nodes: FileInfo[]): boolean {
-    for (const node of nodes) {
-      if (node.path === path && node.type === 'file') {
-        return true;
-      }
-      if (node.children && search(node.children)) {
-        return true;
-      }
-    }
-    return false;
-  }
-  return search(files);
 }
 
 /**
@@ -662,21 +635,37 @@ function expandParentDirectories(filePath: string): void {
  * Load file list
  */
 async function loadFiles(): Promise<void> {
-  const version = ++treeLoadVersion;
-  const loaded = await Promise.all(roots.map(async root => {
-    const prefix = (nodes: FileInfo[]): FileInfo[] => nodes.map(node => ({ ...node,
-      path: root.id + '/' + node.path, children: node.children ? prefix(node.children) : undefined }));
-    try {
-      const children = root.available ? prefix(await fetchFiles(root.id)) : [];
-      return { name: root.label + (root.available ? '' : ' (not mounted)'), path: root.id, type: 'directory' as const, children };
-    } catch (reason) {
-      return { name: root.label + ' — ' + (reason instanceof Error ? reason.message : 'Unavailable'), path: root.id, type: 'directory' as const, children: [] };
-    }
-  }));
-  if (version !== treeLoadVersion) return;
-  files = loaded;
-  if (!findNodeByPath(files, selectedPath)) selectedPath = 'config';
+  ++treeLoadVersion;
+  files = roots.map(root => ({ name: root.label, path: root.id, type: 'directory',
+    error: root.available ? undefined : text('Directory is not mounted', '디렉토리가 마운트되지 않았습니다') }));
   renderFileList();
+  await Promise.all(files.filter(node => expandedDirs.has(node.path) && !node.error).map(node => loadDirectory(node)));
+}
+
+async function loadDirectory(node: FileInfo, more = false): Promise<void> {
+  if (node.loading) return;
+  const version = treeLoadVersion;
+  const location = splitPath(node.path);
+  node.loading = true;
+  node.error = undefined;
+  renderFileList();
+  try {
+    const page = await fetchFiles(location.root, location.path, more ? node.nextOffset ?? 0 : 0);
+    if (version !== treeLoadVersion) return;
+    const children = page.entries.map(entry => ({ ...entry, path: location.root + '/' + entry.path }));
+    node.children = more ? [...(node.children ?? []), ...children] : children;
+    node.children.sort((a, b) => Number(a.type !== 'directory') - Number(b.type !== 'directory') || a.name.localeCompare(b.name));
+    node.nextOffset = page.next_offset;
+  } catch (reason) {
+    if (version !== treeLoadVersion) return;
+    node.error = reason instanceof Error ? reason.message : String(reason);
+  } finally {
+    node.loading = false;
+    if (version === treeLoadVersion) renderFileList();
+  }
+  if (version !== treeLoadVersion || node.error) return;
+  await Promise.all((node.children ?? []).filter(child => child.type === 'directory' &&
+    expandedDirs.has(child.path) && !child.children).map(child => loadDirectory(child)));
 }
 
 /**
@@ -739,6 +728,12 @@ function renderTreeNode(node: FileInfo, level: number = 0): string {
        }
      }
 
+     if (isExpanded) {
+       const padding = `padding-left: ${indent + 24}px`;
+       if (node.loading) html += `<div class="directory-status" style="${padding}" role="status">${text('Loading…', '불러오는 중…')}</div>`;
+       else if (node.error) html += `<div class="directory-status directory-error" style="${padding}" role="alert">${escapeHtml(node.error)} <button data-directory-action="retry" data-directory="${escapeHtml(node.path)}">${text('Retry', '다시 시도')}</button></div>`;
+       else if (node.nextOffset != null) html += `<button class="directory-status" style="${padding}" data-directory-action="more" data-directory="${escapeHtml(node.path)}">${text('Load more', '더 보기')}</button>`;
+     }
      return html;
    } else {
      // File node - no chevron, so add spacing
@@ -797,6 +792,12 @@ function attachFileListListeners(): void {
  */
 function handleFileListClick(e: Event): void {
    const target = e.target as HTMLElement;
+   const action = target.closest<HTMLElement>('[data-directory-action]');
+   if (action) {
+     const node = findNodeByPath(files, action.dataset.directory!);
+     if (node) void loadDirectory(node, action.dataset.directoryAction === 'more');
+     return;
+   }
    const treeItem = target.closest('.tree-item') as HTMLElement;
 
    if (!treeItem) {
@@ -839,6 +840,8 @@ function highlightSelection(): void {
 function toggleDirectory(path: string): void {
   if (expandedDirs.has(path)) expandedDirs.delete(path); else expandedDirs.add(path);
   saveState(); renderFileList();
+  const node = findNodeByPath(files, path);
+  if (node && expandedDirs.has(path) && (!node.children || node.error)) void loadDirectory(node);
 }
 
 /**
@@ -865,6 +868,8 @@ function hasUnsavedTabs(): boolean {
   return isModified || Array.from(documents.tabs.values()).some(tab => tab.modified);
 }
 function clearOpenDocument(): void {
+  resetTemplatePreview();
+  (document.getElementById('template-btn') as HTMLButtonElement).disabled = true;
   currentFile = null; isModified = false;
   setContent('', true); setEditorReadOnly(true); updatePreview(null); clearValidationDetails();
   currentFilenameEl.textContent = text('No file selected', '선택한 파일 없음');
@@ -896,6 +901,8 @@ async function closeTab(key: string): Promise<void> {
 async function loadFile(filename: string, root: string = currentRoot): Promise<void> {
   if (isLoadingFile || isSaving || isToolbarBusy) return;
   if (currentFile === filename && currentRoot === root) return;
+  resetTemplatePreview();
+  (document.getElementById('template-btn') as HTMLButtonElement).disabled = true;
   syncActiveTab();
   isLoadingFile = true;
   setEditorReadOnly(true);
@@ -947,6 +954,7 @@ async function loadFile(filename: string, root: string = currentRoot): Promise<v
   } finally {
     isLoadingFile = false;
     setEditorReadOnly(!currentFile);
+    (document.getElementById('template-btn') as HTMLButtonElement).disabled = !currentFile;
     const disabled = !isModified || !isDocumentValid;
     saveBtnEl.setAttribute('aria-disabled', String(disabled));
     saveBtnMobileEl.setAttribute('aria-disabled', String(disabled));

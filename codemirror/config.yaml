@@ -1,5 +1,5 @@
 name: CodeMirror
-version: "0.4.0"
+version: "0.5.1"
 slug: codemirror
 description: CodeMirror editor with Markdown preview, opt-in workspace access and drag-and-drop uploads
 arch:
@@ -20,13 +20,13 @@ map:
   - type: homeassistant_config
     path: /config
     read_only: false
-  - type: addons
+  - type: local_apps
     path: /addons
     read_only: false
   - type: media
     path: /media
     read_only: false
-  - type: all_addon_configs
+  - type: all_app_configs
     path: /addon_configs
     read_only: false
   - type: ssl

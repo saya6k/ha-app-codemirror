@@ -6,6 +6,17 @@ export const isKorean = () => (language === 'auto' ? navigator.language : langua
 export const text = (en: string, ko: string): string => isKorean() ? ko : en;
 
 const ko: Record<string, string> = {
+  'Reload automations': '자동화 다시 불러오기', 'Reload scripts': '스크립트 다시 불러오기',
+  'Reload groups': '그룹 다시 불러오기', 'Reload Core configuration': 'Core 설정 다시 불러오기',
+  'Reload the homeassistant: YAML configuration': 'homeassistant: YAML 설정 다시 불러오기',
+  'Automations reload completed.': '자동화를 다시 불러왔습니다.',
+  'Scripts reload completed.': '스크립트를 다시 불러왔습니다.',
+  'Groups reload completed.': '그룹을 다시 불러왔습니다.',
+  'Core configuration reload completed.': 'Core 설정을 다시 불러왔습니다.',
+  'Open Material Design Icons in a new tab': '새 탭에서 Material Design Icons 열기',
+  'Render template': '템플릿 렌더링', 'Template preview': '템플릿 미리보기',
+  'Run again': '다시 실행', 'Close template preview': '템플릿 미리보기 닫기',
+  'Uses current HA states. Select a template fragment in YAML; without a selection, the entire document is rendered. Trigger and automation variables are not supplied.': '현재 HA 상태로 평가합니다. YAML에서는 템플릿 부분을 선택하세요. 선택하지 않으면 문서 전체를 렌더링합니다. trigger와 자동화 변수는 제공되지 않습니다.',
   'Files': '파일', 'File actions': '파일 작업', 'Refresh files': '파일 새로고침',
   'New file': '새 파일', 'New folder': '새 폴더', 'New directory': '새 폴더',
   'Rename': '이름 변경', 'Delete': '삭제', 'Cut': '잘라내기', 'Copy': '복사', 'Paste': '붙여넣기',
@@ -108,7 +119,7 @@ export function initLanguage(): void {
   picker.value = language;
   const sources = new WeakMap<Text, { source: string; rendered: string }>();
   const attributes = new WeakMap<Element, Map<string, { source: string; rendered: string }>>();
-  const excluded = '.cm-editor, #file-list, #markdown-preview, #document-tabs, #current-filename, #mobile-filename, #validation-details-content';
+  const excluded = '.cm-editor, #template-result, .template-tooltip, #file-list, #markdown-preview, #document-tabs, #current-filename, #mobile-filename, #validation-details-content';
   function walk(node: Node) {
     const el = node instanceof Element ? node : node.parentElement;
     if (el?.closest(excluded) || el?.closest('script, style')) return;

@@ -13,14 +13,22 @@
 | --- | --- |
 | 엔티티 드롭다운 | `GET http://supervisor/core/api/states` |
 | 엔티티 상태 번역 | `POST http://supervisor/core/api/template` |
+| 편집 중인 Jinja 템플릿 렌더링 | `POST http://supervisor/core/api/template` |
 | 저장된 HA 설정 검사 | `POST http://supervisor/core/api/config/core/check_config` |
 | YAML 리로드 | `POST http://supervisor/core/api/services/homeassistant/reload_all` |
+| Automations 리로드 | `POST http://supervisor/core/api/services/automation/reload` |
+| Scripts 리로드 | `POST http://supervisor/core/api/services/script/reload` |
+| Groups 리로드 | `POST http://supervisor/core/api/services/group/reload` |
+| Core 설정 리로드 | `POST http://supervisor/core/api/services/homeassistant/reload_core_config` |
 | Core 다시 시작 | `POST http://supervisor/core/restart` |
 
 엔티티 상태 번역은 서버에 고정된 템플릿으로 `state_translated(entity_id)`를
 평가하고 드롭다운의 `state_translated` 필드로 제공합니다. HA에 설정된 언어와
 통합의 상태 번역을 따릅니다. 번역 API가 실패하면 원래 `state`로 표시합니다.
-브라우저가 임의 템플릿을 실행하는 API는 제공하지 않습니다.
+별도의 `POST /api/template`은 브라우저가 보낸 템플릿을 HA에서 평가합니다.
+Ingress와 동일 출처 요청 헤더를 검사하고, 64 KiB 입력 제한과 동시 요청 잠금을
+적용합니다. 고정된 Core `/template`만 호출하며 결과는 원문 텍스트로 반환합니다.
+로컬 Jinja 환경에서 실행하지 않고, 렌더링 결과를 HTML로 삽입하지 않습니다.
 근거: [state_translated 문서](https://www.home-assistant.io/template-functions/state_translated/),
 [Core REST API](https://developers.home-assistant.io/docs/api/rest/).
 
@@ -32,6 +40,10 @@ Core API 경로에 접근할 수 있습니다. `manager`나 `admin` 역할은 �
 [Supervisor API](https://developers.home-assistant.io/docs/api/supervisor/endpoints/).
 
 리로드와 재시작은 서버에서 저장된 설정을 먼저 검사하고, 유효할 때만 실행합니다.
+개별 리로드는 공식 [Automation](https://www.home-assistant.io/actions/automation.reload/),
+[Script](https://www.home-assistant.io/integrations/script),
+[Group](https://www.home-assistant.io/actions/group.reload/),
+[Core 설정](https://www.home-assistant.io/actions/homeassistant.reload_core_config/) 동작을 사용합니다.
 브라우저에 저장하지 않은 편집 내용이 있으면 저장을 요구합니다. 재시작은 UI에서
 확인하며, 실행 중 다른 제어 요청은 거부합니다. 시간 초과가 발생해도 재시작을
 자동 재시도하지 않습니다. 사용자는 HA 상태를 확인한 후 다시 실행해야 합니다.

@@ -30,9 +30,14 @@
           <div class="app-actions-panel">
             <button id="validate-btn" type="button">Validate YAML</button>
             <button id="reload-ha-btn" type="button">Reload YAML</button>
+            <button id="reload-automations-btn" type="button">Reload automations</button>
+            <button id="reload-scripts-btn" type="button">Reload scripts</button>
+            <button id="reload-groups-btn" type="button">Reload groups</button>
+            <button id="reload-core-btn" type="button" title="Reload the homeassistant: YAML configuration">Reload Core configuration</button>
             <button id="restart-ha-btn" type="button">Restart HA</button>
             <button id="entities-btn" type="button">Entity suggestions</button>
             <button id="refresh-entities-btn" type="button">Refresh entities</button>
+            <a href="https://materialdesignicons.com" target="_blank" rel="noopener noreferrer" title="Open Material Design Icons in a new tab">Material Design Icons ↗</a>
             <span id="entity-status" role="status" aria-live="polite"></span>
           </div>
         </details>
@@ -114,6 +119,7 @@
         <div id="document-tabs" class="document-tabs" role="tablist" aria-label="Open files"></div>
         <div class="document-tools">
           <span id="document-hint">Choose a file to start editing</span>
+          <button id="template-btn" class="btn btn-secondary" type="button" aria-expanded="false" aria-controls="template-preview" disabled>Render template</button>
           <button id="preview-btn" class="btn btn-secondary" type="button" aria-pressed="false" hidden>Preview Markdown</button>
         </div>
         <div id="editor-split" class="editor-split" role="tabpanel" aria-labelledby="current-filename">
@@ -121,6 +127,17 @@
 
         <article id="markdown-preview" class="markdown-preview" aria-label="Markdown preview" hidden></article>
         </div>
+
+        <section id="template-preview" aria-label="Template preview" hidden>
+          <div class="template-actions">
+            <strong>Template preview</strong>
+            <span id="template-scope"></span>
+            <button id="template-run" class="btn btn-secondary" type="button">Run again</button>
+            <button id="template-close" class="btn btn-secondary" type="button" aria-label="Close template preview">Close</button>
+          </div>
+          <p class="template-help">Uses current HA states. Select a template fragment in YAML; without a selection, the entire document is rendered. Trigger and automation variables are not supplied.</p>
+          <pre id="template-result" role="status" aria-live="polite" tabindex="0"></pre>
+        </section>
 
         <nav class="editor-toolbar" id="editor-toolbar" aria-label="Editor editing tools">
           <div class="toolbar-section">

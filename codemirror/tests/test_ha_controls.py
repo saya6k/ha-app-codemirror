@@ -52,6 +52,31 @@ class HAControlTest(unittest.TestCase):
                 self.assertNotEqual(self.action('restart').status_code, 200)
                 self.assertEqual(post.call_count, 1)
 
+    def test_individual_reloads_validate_then_call_only_the_selected_service(self):
+        for action, service in (
+            ('reload-automations', 'automation/reload'),
+            ('reload-scripts', 'script/reload'),
+            ('reload-groups', 'group/reload'),
+            ('reload-core', 'homeassistant/reload_core_config'),
+        ):
+            with self.subTest(action=action):
+                with patch.object(server.requests, 'post', side_effect=[
+                    response({'result': 'valid'}), response([])
+                ]) as post:
+                    result = self.action(action)
+                    self.assertEqual(result.status_code, 200)
+                    self.assertEqual(post.call_count, 2)
+                    self.assertEqual(post.call_args_list[0].args[0],
+                                     'http://supervisor/core/api/config/core/check_config')
+                    self.assertEqual(post.call_args.args[0],
+                                     'http://supervisor/core/api/services/' + service)
+                with patch.object(server.requests, 'post', return_value=response({'result': 'invalid'})) as post:
+                    self.assertEqual(self.action(action).status_code, 422)
+                    self.assertEqual(post.call_count, 1)
+                with server.ha_control_lock, patch.object(server.requests, 'post') as post:
+                    self.assertEqual(self.action(action).status_code, 409)
+                    post.assert_not_called()
+
     def test_missing_token_and_arbitrary_actions_are_rejected(self):
         with patch.object(server.requests, 'post') as post:
             with patch.object(server, 'TOKEN', ''):

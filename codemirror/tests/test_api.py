@@ -37,6 +37,41 @@ class FileAPITest(unittest.TestCase):
                                 data={'directory': directory,
                                       'file': (io.BytesIO(content), name)})
 
+    def test_directory_listing_is_lazy_and_paged(self):
+        root = self.roots['share']
+        deep = root / 'deep'
+        deep.mkdir()
+        for _ in range(34):
+            deep = deep / 'child'
+            deep.mkdir()
+        self.assertEqual(self.client.get('/api/directory?root=share').status_code, 403)
+        self.opt_in(allow_share=True)
+        # The legacy recursive scan fails, but the explorer lists this root.
+        self.assertEqual(self.client.get('/api/files?root=share').status_code, 400)
+        result = self.client.get('/api/directory?root=share').json
+        self.assertEqual({n['name'] for n in result['entries']}, {'test.md', 'deep'})
+        self.assertNotIn('children', next(n for n in result['entries'] if n['name'] == 'deep'))
+        for i in range(510):
+            (root / f'{i}.txt').touch()
+        seen = []
+        offset = 0
+        while offset is not None:
+            page = self.client.get(f'/api/directory?root=share&offset={offset}').json
+            self.assertLessEqual(len(page['entries']), 500)
+            seen.extend(n['path'] for n in page['entries'])
+            offset = page['next_offset']
+        self.assertEqual(len(seen), 512)
+        self.assertEqual(len(set(seen)), 512)
+
+    def test_directory_listing_rejects_escape_and_links(self):
+        root = self.roots['config']
+        (root / 'linked').symlink_to(self.roots['share'], target_is_directory=True)
+        for path in ('../share', 'linked'):
+            self.assertEqual(self.client.get('/api/directory', query_string={'path': path}).status_code, 403)
+        self.assertEqual(self.client.get('/api/directory?offset=-1').status_code, 400)
+        self.assertEqual(self.client.get('/api/directory?offset=no').status_code, 400)
+        self.assertNotIn('linked', [n['name'] for n in self.client.get('/api/directory').json['entries']])
+
     def test_defaults_only_expose_config(self):
         roots = self.client.get('/api/roots').json['roots']
         self.assertEqual([r['id'] for r in roots], ['config'])

@@ -220,3 +220,37 @@ def file_tree(root):
 
     with directory(root) as fd:
         return walk(fd)
+
+
+def directory_page(root, path='', offset=0, limit=500):
+    """Read one directory only; bound metadata work and response size per request.
+
+    Offsets describe filesystem iteration order, not a persistent snapshot. Refresh
+    after mutations; never descend into child directories to display their names.
+    """
+    nodes = []
+    with directory(root, path) as fd, os.scandir(fd) as entries:
+        for index, item in enumerate(entries):
+            if index < offset:
+                continue
+            if index >= offset + limit:
+                return {'entries': sorted(nodes, key=lambda n: (n['type'] != 'directory', n['name'].casefold())),
+                        'next_offset': index}
+            if (item.name.startswith('.codemirror-') or item.name.endswith('.backup') or
+                    item.name in ('.git', '.storage', '__pycache__', 'node_modules')):
+                continue
+            try:
+                info = item.stat(follow_symlinks=False)
+            except OSError as error:
+                if error.errno in (errno.ENOENT, errno.EACCES, errno.EPERM):
+                    continue
+                raise
+            name = f'{path}/{item.name}' if path else item.name
+            if stat.S_ISDIR(info.st_mode):
+                nodes.append({'name': item.name, 'path': name, 'type': 'directory'})
+            elif stat.S_ISREG(info.st_mode) and info.st_nlink == 1:
+                nodes.append({'name': item.name, 'path': name, 'type': 'file',
+                              'size': info.st_size,
+                              'editable': Path(item.name).suffix.lower() in TEXT_EXTENSIONS})
+    return {'entries': sorted(nodes, key=lambda n: (n['type'] != 'directory', n['name'].casefold())),
+            'next_offset': None}

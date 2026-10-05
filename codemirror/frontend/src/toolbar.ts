@@ -1,5 +1,5 @@
 import { translate } from './i18n';
-import { createEntry, runHAAction, validateConfig } from './api';
+import { createEntry, runHAAction, validateConfig, type HAAction } from './api';
 import { getEditorFileType, validateCurrentDocument, showEntityCompletions } from './editor';
 import { getEntityCount } from './autocomplete';
 
@@ -71,9 +71,15 @@ export function initToolbar(actions: ToolbarActions): void {
     }
   });
 
-  const controlButtons = ['validate-btn', 'reload-ha-btn', 'restart-ha-btn'].map(id =>
+  const controls: [string, 'validate' | HAAction][] = [
+    ['validate-btn', 'validate'], ['reload-ha-btn', 'reload'],
+    ['reload-automations-btn', 'reload-automations'], ['reload-scripts-btn', 'reload-scripts'],
+    ['reload-groups-btn', 'reload-groups'], ['reload-core-btn', 'reload-core'],
+    ['restart-ha-btn', 'restart'],
+  ];
+  const controlButtons = controls.map(([id]) =>
     document.getElementById(id) as HTMLButtonElement);
-  async function run(action: 'validate' | 'reload' | 'restart') {
+  async function run(action: 'validate' | HAAction) {
     if (actions.isBusy()) return;
     const context = actions.context();
     if (action !== 'validate' && context.modified) {
@@ -114,9 +120,9 @@ export function initToolbar(actions: ToolbarActions): void {
       controlButtons.forEach(button => { button.disabled = false; });
     }
   }
-  controlButtons[0].addEventListener('click', () => void run('validate'));
-  controlButtons[1].addEventListener('click', () => void run('reload'));
-  controlButtons[2].addEventListener('click', () => void run('restart'));
+  controls.forEach(([, action], index) => {
+    controlButtons[index].addEventListener('click', () => void run(action));
+  });
   document.getElementById('refresh-entities-btn')!.addEventListener('click', () => void actions.refreshEntities());
   document.getElementById('entities-btn')!.addEventListener('click', () => {
     if (actions.isBusy()) return;
