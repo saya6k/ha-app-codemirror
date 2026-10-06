@@ -10,16 +10,25 @@ import sys
 from werkzeug.exceptions import BadRequest, Conflict, Forbidden, RequestEntityTooLarge
 from filesystem import directory, parent, parts, DIR_FLAGS, regular_file, atomic_write
 
+SYS_RENAMEAT2 = {'x86_64': 316, 'aarch64': 276}
+
 
 def rename_exclusive(src_fd, src, dst_fd, dst):
     libc = ctypes.CDLL(None, use_errno=True)
+    args = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint]
+    prefix = ()
     if sys.platform == 'darwin':
         fn, flag = libc.renameatx_np, 4  # RENAME_EXCL
+    elif hasattr(libc, 'renameat2'):
+        fn, flag = libc.renameat2, 1  # RENAME_NOREPLACE (glibc)
     else:
-        fn, flag = libc.renameat2, 1  # RENAME_NOREPLACE (Linux runtime)
-    fn.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint]
+        # musl (Alpine runtime) has no renameat2 wrapper; invoke the syscall directly.
+        fn, flag = libc.syscall, 1
+        args = [ctypes.c_long] + args
+        prefix = (SYS_RENAMEAT2[os.uname().machine],)
+    fn.argtypes = args
     fn.restype = ctypes.c_int
-    if fn(src_fd, os.fsencode(src), dst_fd, os.fsencode(dst), flag) != 0:
+    if fn(*prefix, src_fd, os.fsencode(src), dst_fd, os.fsencode(dst), flag) != 0:
         code = ctypes.get_errno()
         if code in (errno.EEXIST, errno.ENOTEMPTY):
             raise Conflict('An entry with this name already exists')
