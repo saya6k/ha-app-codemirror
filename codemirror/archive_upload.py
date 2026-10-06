@@ -7,7 +7,7 @@ import zipfile
 import zlib
 
 from werkzeug.exceptions import BadRequest, RequestEntityTooLarge
-from filesystem import directory, parts, DIR_FLAGS, atomic_write
+from filesystem import directory, parts, DIR_FLAGS
 from file_actions import rename_exclusive, remove
 
 
@@ -64,8 +64,8 @@ def extract_folder(root, folder, stream, limit):
                         if entry.is_dir():
                             continue
                         with relative_directory(stage, path.split('/')[:-1]) as parent_fd, archive.open(entry) as content:
-                            size = atomic_write(parent_fd, path.split('/')[-1], content, remaining)
-                            remaining -= size
+                            remaining -= write_new(parent_fd, path.split('/')[-1], content, remaining)
+                    os.sync()  # One flush before publishing instead of an fsync per file.
                     rename_exclusive(stage, top, destination, top)
                 finally:
                     os.close(stage)
@@ -73,6 +73,19 @@ def extract_folder(root, folder, stream, limit):
             return {'path': f'{folder}/{top}' if folder else top, 'files': sum(not e.is_dir() for e in entries), 'size': total}
     except (zipfile.BadZipFile, NotImplementedError, RuntimeError, EOFError, zlib.error) as error:
         raise BadRequest('Invalid or unsupported ZIP archive') from error
+
+
+def write_new(fd, name, stream, limit):
+    """Write straight into the private staging tree; the final rename publishes it."""
+    opened = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644, dir_fd=fd)
+    with os.fdopen(opened, 'wb') as output:
+        size = 0
+        while chunk := stream.read(1024 * 1024):
+            size += len(chunk)
+            if size > limit:
+                raise RequestEntityTooLarge('File exceeds the configured size limit')
+            output.write(chunk)
+    return size
 
 
 @contextmanager

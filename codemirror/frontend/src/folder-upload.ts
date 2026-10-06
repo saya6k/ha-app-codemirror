@@ -25,7 +25,10 @@ export async function droppedFolder(root: FileSystemEntry): Promise<FolderEntry[
   return entries;
 }
 
-/** Incremental ZIP compression yields between chunks; no worker/blob CSP exemption. */
+const STORED = /\.(zip|gz|tgz|bz2|xz|7z|rar|zst|png|jpe?g|gif|webp|avif|heic|mp[34]|m4[av]|mkv|mov|webm|ogg|opus|flac|woff2?|pdf)$/i;
+const CHUNK = 1024 * 1024;
+
+/** Incremental ZIP compression yields every ~50 ms; no worker/blob CSP exemption. */
 export async function compressFolder(entries: FolderEntry[], limit: number, progress: (done: number, total: number) => void): Promise<Blob> {
   if (!entries.length || entries.length > 10000) throw new Error('Folder must contain 1–10000 entries');
   const size = entries.reduce((total, entry) => total + (entry.file?.size || 0), 0);
@@ -34,6 +37,13 @@ export async function compressFolder(entries: FolderEntry[], limit: number, prog
   let compressed = 0;
   let failure: Error | null = null;
   let done = 0;
+  let yielded = performance.now();
+  // Nested setTimeout is clamped to >=4 ms, so yield by elapsed time, not per chunk.
+  const breathe = async () => {
+    if (performance.now() - yielded < 50) return;
+    await new Promise(resolve => setTimeout(resolve, 0));
+    yielded = performance.now();
+  };
   const zip = new Zip((error, chunk) => {
     if (error) { failure = error; return; }
     compressed += chunk.length;
@@ -46,18 +56,19 @@ export async function compressFolder(entries: FolderEntry[], limit: number, prog
       const directory = new ZipPassThrough(entry.path);
       zip.add(directory); directory.push(new Uint8Array(), true);
     } else {
-      const item = new ZipDeflate(entry.path, { level: 6 });
+      const item = STORED.test(entry.path) ? new ZipPassThrough(entry.path) : new ZipDeflate(entry.path, { level: 1 });
       zip.add(item);
-      for (let offset = 0; offset < entry.file.size; offset += 64 * 1024) {
-        const data = new Uint8Array(await entry.file.slice(offset, offset + 64 * 1024).arrayBuffer());
+      for (let offset = 0; offset < entry.file.size; offset += CHUNK) {
+        const data = new Uint8Array(await entry.file.slice(offset, offset + CHUNK).arrayBuffer());
         item.push(data, false);
         if (failure) throw failure;
-        await new Promise(resolve => setTimeout(resolve, 0));
+        await breathe();
       }
       item.push(new Uint8Array(), true);
     }
     progress(++done, entries.length);
     if (failure) throw failure;
+    await breathe();
   }
   zip.end();
   if (failure) throw failure;
