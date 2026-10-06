@@ -120,3 +120,25 @@ test('folder drop preserves empty directories and drains entry batches', async (
   const folder = docs.children.find((node: { name: string }) => node.name === 'dropped-folder');
   expect(folder.children.some((node: { name: string; type: string }) => node.name === 'empty' && node.type === 'directory')).toBe(true);
 });
+
+test('drag preview highlights the folder the drop will land in', async ({ page }) => {
+  await page.goto('/');
+  const drag = (path: string, type: 'dragover' | 'drop') => page.locator(`[data-path="${path}"]`).evaluate((target, type) => {
+    const data = new DataTransfer();
+    data.items.add(new File(['# preview'], 'preview-drop.md'));
+    target.dispatchEvent(new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: data }));
+  }, type);
+  const hint = page.locator('#drop-hint');
+  await drag('config/docs', 'dragover');
+  await expect(hint).toHaveText('Drop to upload to /config/docs');
+  await expect(page.locator('.tree-item.drop-target')).toHaveAttribute('data-path', 'config/docs');
+  await drag('config/guide.md', 'dragover');
+  await expect(hint).toHaveText('Drop to upload to /config');
+  await expect(page.locator('.tree-item.drop-target')).toHaveAttribute('data-path', 'config');
+  await drag('config/guide.md', 'drop');
+  await expect(hint).toBeHidden();
+  await expect(page.locator('.tree-item.drop-target')).toHaveCount(0);
+  await expect(page.locator('#upload-results')).toContainText('Destination: /config');
+  await expect(page.locator('#upload-results')).toContainText('1/1 uploaded to /config');
+  expect((await page.request.get('/api/files/preview-drop.md?root=config')).ok()).toBe(true);
+});

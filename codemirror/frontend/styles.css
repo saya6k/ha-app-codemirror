@@ -1039,6 +1039,8 @@ body {
 #upload-results:empty { display: none; }
 #upload-results .error { color: var(--error-color); }
 .sidebar.drop-active { outline: 3px dashed var(--accent-color); outline-offset: -4px; }
+.tree-item.drop-target { background-color: var(--bg-tertiary); box-shadow: inset 0 0 0 2px var(--accent-color); }
+#drop-hint { padding: 0.5rem 0.75rem; border-top: 1px solid var(--border-color); font-size: 0.75rem; color: var(--accent-color); overflow-wrap: anywhere; }
 .sidebar-header { display: flex; justify-content: space-between; align-items: center; }
 .document-tools { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--border-color); }
 #document-hint { font-size: 0.75rem; color: var(--text-secondary); }

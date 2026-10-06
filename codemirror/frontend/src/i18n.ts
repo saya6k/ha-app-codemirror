@@ -107,6 +107,8 @@ export function translate(value: string): string {
     [/^(.+): (\d+) files uploaded$/, (path, count) => `${path}: 파일 ${count}개 업로드 완료`],
     [/^(\d+)\/(\d+) uploaded to (.+)$/, (done, total, path) => `${path}: ${done}/${total}개 업로드 완료`],
     [/^(.+): uploaded$/, path => `${path}: 업로드 완료`],
+    [/^Drop to upload to (.+)$/, path => `놓으면 ${path}에 업로드`],
+    [/^Destination: (.+)$/, path => `업로드 위치: ${path}`],
     [/^Failed to load (.+)$/, path => `불러오기 실패: ${path}`],
   ];
   for (const [pattern, format] of patterns) { const match = value.match(pattern); if (match) return format(...match.slice(1)); }
