@@ -249,12 +249,24 @@ export interface Workspace {
   id: string;
   label: string;
   available: boolean;
+  enabled: boolean;
 }
 
 export async function fetchRoots(): Promise<{ roots: Workspace[]; max_upload_bytes: number }> {
   const response = await fetch(`${API_BASE}/roots`);
   if (!response.ok) throw new Error('Could not load workspaces');
   return response.json();
+}
+
+export async function setRootEnabled(id: string, enabled: boolean): Promise<Workspace[]> {
+  const response = await fetch(`${API_BASE}/roots/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', 'X-CodeMirror-Request': '1' },
+    body: JSON.stringify({ enabled }),
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || 'Could not change directory access');
+  return data.roots;
 }
 
 /** Upload one file per request so a batch can report individual outcomes. */

@@ -20,7 +20,9 @@ class ArchiveUploadTest(unittest.TestCase):
         self.config = self.base / 'config'; self.config.mkdir()
         self.media = self.base / 'media'; self.media.mkdir()
         self.options = self.base / 'options.json'; self.options.write_text('{"max_upload_mb":1}')
-        patched = patch.multiple(server, ROOT_PATHS={'config': self.config, 'media': self.media}, OPTIONS_FILE=self.options)
+        self.workspaces = self.base / 'workspaces.json'
+        patched = patch.multiple(server, ROOT_PATHS={'config': self.config, 'media': self.media},
+                                 OPTIONS_FILE=self.options, WORKSPACES_FILE=self.workspaces)
         patched.start(); self.addCleanup(patched.stop)
         self.client = server.app.test_client()
 
@@ -47,7 +49,7 @@ class ArchiveUploadTest(unittest.TestCase):
     def test_permission_and_destination_links(self):
         data = self.archive([('folder/a.txt', 'data')])
         self.assertEqual(self.upload(data, root='media').status_code, 403)
-        self.options.write_text(json.dumps({'allow_media': True}))
+        self.workspaces.write_text(json.dumps({'enabled': ['config', 'media']}))
         self.assertEqual(self.upload(data, root='media').status_code, 201)
         (self.config / 'link').symlink_to(self.media, target_is_directory=True)
         self.assertEqual(self.upload(data, folder='link').status_code, 403)

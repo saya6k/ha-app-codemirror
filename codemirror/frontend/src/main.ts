@@ -4,7 +4,7 @@
 
 import { initTheme } from './theme';
 import { createEditor, setEditorReadOnly, setContent, getContent, registerSaveShortcut, editorUndo, editorRedo, editorIndent, editorDedent, canEditorUndo, canEditorRedo, restoreLastValidContent, applyAppearanceSettings, scrollEditorSelectionIntoView, configureEditorForFile, getEditorFileType, validateCurrentDocument, captureEditor, restoreEditor } from './editor';
-import { fetchRoots, fetchEntities, fetchFiles, fetchSettings, readFile, saveFile, validateConfig, type EditorSettings, type FileInfo, type Workspace } from './api';
+import { fetchRoots, setRootEnabled, fetchEntities, fetchFiles, fetchSettings, readFile, saveFile, validateConfig, type EditorSettings, type FileInfo, type Workspace } from './api';
 import { setEntities } from './autocomplete';
 import { getAppearanceSettings, initAppearance } from './appearance';
 import { formatDocument } from './formatter';
@@ -111,11 +111,75 @@ async function initializeWorkspaces(): Promise<void> {
   const result = await fetchRoots();
   roots = result.roots;
   uploads.setLimit(result.max_upload_bytes);
-  const savedRoot = localStorage.getItem(STORAGE_KEY_ROOT);
-  currentRoot = roots.some(root => root.id === savedRoot && root.available) ? savedRoot! : 'config';
+  const savedRoot = localStorage.getItem(STORAGE_KEY_ROOT) ?? 'config';
+  if (roots.some(root => root.id === savedRoot && root.available && root.enabled)) currentRoot = savedRoot;
+  else {
+    // The saved file belongs to a root that is now off; never reopen it from another root.
+    localStorage.removeItem(STORAGE_KEY_CURRENT_FILE);
+    currentRoot = firstEnabledRoot();
+  }
   selectedPath = currentRoot;
   expandedDirs.add(currentRoot);
+  renderRootOptions();
 }
+
+function firstEnabledRoot(): string {
+  return roots.find(root => root.enabled)?.id ?? '';
+}
+
+const rootOptionsEl = document.getElementById('root-options')!;
+function renderRootOptions(): void {
+  rootOptionsEl.replaceChildren(...roots.map(root => {
+    const label = document.createElement('label');
+    const box = document.createElement('input');
+    box.type = 'checkbox'; box.value = root.id; box.checked = root.enabled;
+    label.append(box, ' ' + root.label);
+    if (!root.available) label.title = text('Directory is not mounted', '디렉토리가 마운트되지 않았습니다');
+    return label;
+  }));
+}
+
+// Turning a directory off closes its open tabs, so refuse while any of them has unsaved edits.
+rootOptionsEl.addEventListener('change', async (event) => {
+  const box = event.target as HTMLInputElement;
+  const root = box.value;
+  const label = roots.find(item => item.id === root)?.label ?? root;
+  syncActiveTab();
+  const tabs = Array.from(documents.tabs.entries()).filter(([, tab]) => tab.root === root);
+  if (isLoadingFile || isSaving || isToolbarBusy || (!box.checked && tabs.some(([, tab]) => tab.modified))) {
+    box.checked = !box.checked;
+    updateStatus(text(`Save or close unsaved files in ${label} first`, `${label}의 저장하지 않은 파일을 먼저 저장하거나 닫으세요`), '', true);
+    return;
+  }
+  box.disabled = true;
+  try {
+    roots = await setRootEnabled(root, box.checked);
+  } catch (error) {
+    box.checked = !box.checked;
+    updateStatus(error instanceof Error ? error.message : String(error), '', true);
+    return;
+  } finally {
+    box.disabled = false;
+  }
+  if (box.checked) {
+    expandedDirs.add(root);
+    if (!currentRoot) selectedPath = currentRoot = root;
+  } else {
+    for (const [key] of tabs) documents.tabs.delete(key);
+    if (currentRoot === root) {
+      const hadFile = currentFile !== null;
+      if (hadFile) clearOpenDocument();
+      currentRoot = firstEnabledRoot();
+      const next = Array.from(documents.tabs.values()).pop();
+      if (hadFile && next) await loadFile(next.path, next.root);
+    }
+    documents.activate(currentFile ? tabKey(currentRoot, currentFile) : '');
+    if (splitPath(selectedPath).root === root) selectedPath = currentRoot;
+  }
+  saveState();
+  renderRootOptions();
+  await loadFiles();
+});
 
 window.addEventListener('beforeunload', (event) => {
   if (isModified || Array.from(documents.tabs.values()).some(tab => tab.modified) || uploads.isBusy()) { event.preventDefault(); event.returnValue = ''; }
@@ -636,7 +700,7 @@ function expandParentDirectories(filePath: string): void {
  */
 async function loadFiles(): Promise<void> {
   ++treeLoadVersion;
-  files = roots.map(root => ({ name: root.label, path: root.id, type: 'directory',
+  files = roots.filter(root => root.enabled).map(root => ({ name: root.label, path: root.id, type: 'directory',
     error: root.available ? undefined : text('Directory is not mounted', '디렉토리가 마운트되지 않았습니다') }));
   renderFileList();
   await Promise.all(files.filter(node => expandedDirs.has(node.path) && !node.error).map(node => loadDirectory(node)));
@@ -755,7 +819,7 @@ function renderTreeNode(node: FileInfo, level: number = 0): string {
  */
 function renderFileList(): void {
     if (files.length === 0) {
-      fileListEl.innerHTML = '<div class="loading">This folder is empty. Drop files to upload.</div>';
+      fileListEl.innerHTML = `<div class="loading">${text('Turn on a directory under Directories.', '디렉토리에서 볼 경로를 켜세요.')}</div>`;
      return;
    }
 

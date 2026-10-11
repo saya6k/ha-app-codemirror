@@ -25,6 +25,8 @@ with tempfile.TemporaryDirectory(prefix='codemirror-browser-') as temp:
     (config / 'quotes " & <test>.md').write_text('# Filename escaping\n')
     (server.ROOT_PATHS['media'] / 'media.md').write_text('# Media workspace\n')
     server.OPTIONS_FILE = base / 'options.json'
-    server.OPTIONS_FILE.write_text(json.dumps({'allow_media': True, 'max_upload_mb': 1}))
+    server.OPTIONS_FILE.write_text(json.dumps({'max_upload_mb': 1}))
+    server.WORKSPACES_FILE = base / 'workspaces.json'
+    server.WORKSPACES_FILE.write_text(json.dumps({'enabled': ['config', 'media']}))
     logging.getLogger('werkzeug').setLevel(logging.ERROR)
     server.app.run(host='127.0.0.1', port=18099, debug=False)
