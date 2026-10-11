@@ -76,6 +76,45 @@ test('unified roots preserve unsaved changes and restore cross-root files', asyn
   await expect(page.locator('.cm-content')).toContainText('Media workspace');
 });
 
+test('directories toggle at runtime and keep unsaved files open', async ({ page }) => {
+  await page.goto('/');
+  await page.locator('#root-picker summary').click();
+  const config = page.getByRole('checkbox', { name: '/config' });
+  await page.locator('[data-path="config/guide.md"]').click();
+  await config.uncheck();
+  await expect(page.locator('[data-path="config"]')).toHaveCount(0);
+  await expect(page.getByRole('tab', { name: 'guide.md' })).toHaveCount(0);
+  await page.reload();
+  await expect(page.locator('[data-path="config"]')).toHaveCount(0);
+  await expect(page.locator('[data-path="media"]')).toBeVisible();
+  await page.locator('#root-picker summary').click();
+  await config.check();
+  await expect(page.locator('[data-path="config/guide.md"]')).toBeVisible();
+  const ssl = page.getByRole('checkbox', { name: '/ssl' });
+  const media = page.getByRole('checkbox', { name: '/media' });
+  await ssl.check();
+  await expect(page.locator('[data-path="ssl"]')).toBeVisible();
+  await ssl.uncheck();
+  await expect(page.locator('[data-path="ssl"]')).toHaveCount(0);
+  // /media became the start root while /config was off, so it is already expanded.
+  await page.locator('[data-path="media/media.md"]').click();
+  await page.locator('.cm-content').fill('# Unsaved media');
+  await media.click();
+  await expect(media).toBeChecked();
+  await expect(page.locator('#status-message')).toContainText('Save or close unsaved files in /media first');
+  await page.locator('.cm-content').fill('# Media workspace\n');
+  await page.locator('#save-btn').click();
+  await expect(page.locator('#status-message')).toHaveText('Saved');
+  await media.uncheck();
+  await expect(page.locator('[data-path="media"]')).toHaveCount(0);
+  await expect(page.getByRole('tab', { name: 'media.md' })).toHaveCount(0);
+  await page.reload();
+  await expect(page.locator('[data-path="media"]')).toHaveCount(0);
+  await page.locator('#root-picker summary').click();
+  await media.check();
+  await expect(page.locator('[data-path="media/media.md"]')).toBeVisible();
+});
+
 test('Markdown preview removes active content and embedded requests', async ({ page }) => {
   const external: string[] = [];
   page.on('request', request => { if (!request.url().startsWith('http://127.0.0.1:18099')) external.push(request.url()); });

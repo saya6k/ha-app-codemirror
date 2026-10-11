@@ -106,6 +106,10 @@
           <h2>Files</h2><button id="explorer-menu-btn" class="btn btn-secondary" type="button" aria-label="File actions" aria-haspopup="menu">⋯</button>
           <button id="refresh-files" class="btn btn-secondary" type="button" aria-label="Refresh files">↻</button>
         </div>
+        <details id="root-picker" class="root-picker">
+          <summary>Directories</summary>
+          <div id="root-options" role="group" aria-label="Directories"></div>
+        </details>
         <input id="upload-input" type="file" multiple hidden>
         <input id="upload-folder-input" type="file" webkitdirectory multiple hidden>
         <div id="upload-results" role="status" aria-live="polite"></div>

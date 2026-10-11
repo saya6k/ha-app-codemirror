@@ -23,14 +23,16 @@ class FileAPITest(unittest.TestCase):
             (root / 'test.md').write_text('# Original\n')
         self.options = self.base / 'options.json'
         self.options.write_text('{}')
-        self.patch = patch.multiple(server, ROOT_PATHS=self.roots, OPTIONS_FILE=self.options)
+        self.workspaces = self.base / 'workspaces.json'
+        self.patch = patch.multiple(server, ROOT_PATHS=self.roots, OPTIONS_FILE=self.options,
+                                    WORKSPACES_FILE=self.workspaces)
         self.patch.start()
         self.addCleanup(self.patch.stop)
         self.client = server.app.test_client()
         self.headers = {'X-CodeMirror-Request': '1'}
 
-    def opt_in(self, **options):
-        self.options.write_text(json.dumps(options))
+    def opt_in(self, *roots):
+        self.workspaces.write_text(json.dumps({'enabled': ['config', *roots]}))
 
     def upload(self, root='config', name='image.png', content=b'\x00image', directory=''):
         return self.client.post(f'/api/upload?root={root}', headers=self.headers,
@@ -45,7 +47,7 @@ class FileAPITest(unittest.TestCase):
             deep = deep / 'child'
             deep.mkdir()
         self.assertEqual(self.client.get('/api/directory?root=share').status_code, 403)
-        self.opt_in(allow_share=True)
+        self.opt_in('share')
         # The legacy recursive scan fails, but the explorer lists this root.
         self.assertEqual(self.client.get('/api/files?root=share').status_code, 400)
         result = self.client.get('/api/directory?root=share').json
@@ -74,7 +76,8 @@ class FileAPITest(unittest.TestCase):
 
     def test_defaults_only_expose_config(self):
         roots = self.client.get('/api/roots').json['roots']
-        self.assertEqual([r['id'] for r in roots], ['config'])
+        self.assertEqual([r['id'] for r in roots if r['enabled']], ['config'])
+        self.assertEqual([r['id'] for r in roots], list(self.roots))
         for root in self.roots:
             if root == 'config':
                 continue
@@ -90,7 +93,7 @@ class FileAPITest(unittest.TestCase):
             if root == 'config':
                 continue
             with self.subTest(root=root):
-                self.opt_in(**{f'allow_{root}': True})
+                self.opt_in(root)
                 self.assertEqual(self.client.get(f'/api/files/test.md?root={root}').status_code, 200)
                 self.assertEqual(self.client.put(f'/api/files/test.md?root={root}',
                     json={'content': '# Updated'}, headers=self.headers).status_code, 200)
@@ -98,10 +101,31 @@ class FileAPITest(unittest.TestCase):
                 self.opt_in()
                 self.assertEqual(self.client.get(f'/api/files/test.md?root={root}').status_code, 403)
 
-    def test_options_fail_closed(self):
-        for raw in ('{"allow_ssl": "true"}', '{"allow_ssl": 1}', 'null', '[]', '{'):
-            self.options.write_text(raw)
+    def test_workspace_state_fails_closed(self):
+        for raw in ('{"enabled": "ssl"}', '{"ssl": true}', 'null', '[]', '{'):
+            self.workspaces.write_text(raw)
             self.assertEqual(self.client.get('/api/files?root=ssl').status_code, 403)
+            self.assertEqual(self.client.get('/api/files?root=config').status_code, 200)
+
+    def test_workspaces_toggle_at_runtime_and_persist(self):
+        def toggle(root, value, headers=self.headers):
+            return self.client.put(f'/api/roots/{root}', json={'enabled': value}, headers=headers)
+        self.assertEqual(toggle('ssl', True, headers={}).status_code, 403)
+        self.assertEqual(self.client.get('/api/files?root=ssl').status_code, 403)
+        response = toggle('ssl', True)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual([r['id'] for r in response.json['roots'] if r['enabled']], ['config', 'ssl'])
+        self.assertEqual(json.loads(self.workspaces.read_text()), {'enabled': ['config', 'ssl']})
+        self.assertEqual(self.client.get('/api/files/test.md?root=ssl').status_code, 200)
+        self.assertEqual(toggle('ssl', False).status_code, 200)
+        self.assertEqual(self.client.get('/api/files/test.md?root=ssl').status_code, 403)
+        self.assertEqual(toggle('unknown', True).status_code, 403)
+        self.assertEqual(toggle('ssl', 'true').status_code, 400)
+        self.assertEqual(toggle('config', False).status_code, 200)
+        self.assertEqual(self.client.get('/api/files?root=config').status_code, 403)
+        self.assertEqual([r['id'] for r in self.client.get('/api/roots').json['roots'] if r['enabled']], [])
+        self.assertEqual(toggle('config', True).status_code, 200)
+        self.assertEqual(self.client.get('/api/files?root=config').status_code, 200)
 
     def test_markdown_roundtrip_and_backup(self):
         path = self.roots['config'] / 'test.md'
@@ -168,7 +192,7 @@ class FileAPITest(unittest.TestCase):
             server.filesystem.upload(self.roots['config'], '', storage, 1024)
 
     def test_upload_limit_leaves_no_partial_file(self):
-        self.opt_in(max_upload_mb=1)
+        self.options.write_text(json.dumps({'max_upload_mb': 1}))
         result = self.upload(content=b'x' * (1024 * 1024 + 1))
         self.assertEqual(result.status_code, 413)
         self.assertFalse((self.roots['config'] / 'image.png').exists())
@@ -243,7 +267,7 @@ class FileAPITest(unittest.TestCase):
                 continue
             for kind in ('file', 'directory'):
                 self.assertEqual(self.create('new.yaml', kind, root=root).status_code, 403)
-            self.opt_in(**{f'allow_{root}': True})
+            self.opt_in(root)
             self.assertEqual(self.create('new.yaml', root=root).status_code, 201)
             self.opt_in()
         (self.roots['config'] / 'escape').symlink_to(self.roots['ssl'])

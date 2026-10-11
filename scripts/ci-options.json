@@ -1,8 +1,3 @@
 {
-  "allow_local_apps": false,
-  "allow_media": false,
-  "allow_addon_configs": false,
-  "allow_ssl": false,
-  "allow_share": false,
   "max_upload_mb": 32
 }

@@ -42,6 +42,8 @@ ROOT_PATHS = {
     'share': Path('/share'),
 }
 OPTIONS_FILE = Path(os.getenv('OPTIONS_FILE', '/data/options.json'))
+# Workspaces enabled from the UI; persisted in /data so they survive restarts.
+WORKSPACES_FILE = Path(os.getenv('WORKSPACES_FILE', '/data/workspaces.json'))
 DEFAULT_SETTINGS = {'indent_style': 'spaces', 'indent_opacity': 100}
 write_lock = Lock()
 ha_control_lock = Lock()
@@ -63,6 +65,23 @@ def upload_limit():
     return value * 1024 * 1024
 
 
+def enabled_roots():
+    try:
+        value = json.loads(WORKSPACES_FILE.read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        value = None
+    enabled = value.get('enabled') if isinstance(value, dict) else None
+    if not isinstance(enabled, list):
+        return {'config'}
+    return {key for key in enabled if key in ROOT_PATHS}
+
+
+def save_enabled_roots(enabled):
+    temp = WORKSPACES_FILE.with_name(WORKSPACES_FILE.name + '.tmp')
+    temp.write_text(json.dumps({'enabled': sorted(enabled)}), encoding='utf-8')
+    os.replace(temp, WORKSPACES_FILE)
+
+
 def selected_root(root_id=None):
     if root_id is None:
         root_id = request.args.get('root', 'config')
@@ -70,8 +89,8 @@ def selected_root(root_id=None):
         raise BadRequest('Workspace must be a string')
     if root_id not in ROOT_PATHS:
         raise Forbidden('Unknown workspace')
-    if root_id != 'config' and read_options().get(f'allow_{root_id}') is not True:
-        raise Forbidden('Workspace access is disabled in app options')
+    if root_id not in enabled_roots():
+        raise Forbidden('Workspace is not enabled')
     return ROOT_PATHS[root_id]
 
 
@@ -104,12 +123,26 @@ def security_headers(response):
 
 @app.route('/api/roots')
 def list_roots():
-    options = read_options()
+    enabled = enabled_roots()
     roots = [{'id': key, 'label': '/addons' if key == 'local_apps' else '/' + key,
-              'available': path.is_dir() and not path.is_symlink()}
-             for key, path in ROOT_PATHS.items()
-             if key == 'config' or options.get(f'allow_{key}') is True]
+              'available': path.is_dir() and not path.is_symlink(),
+              'enabled': key in enabled}
+             for key, path in ROOT_PATHS.items()]
     return jsonify({'roots': roots, 'max_upload_bytes': upload_limit()})
+
+
+@app.route('/api/roots/<root_id>', methods=['PUT'])
+def set_root_enabled(root_id):
+    data = request.get_json(silent=True)
+    value = data.get('enabled') if isinstance(data, dict) else None
+    if root_id not in ROOT_PATHS:
+        raise Forbidden('Unknown workspace')
+    if not isinstance(value, bool):
+        raise BadRequest('enabled must be a boolean')
+    with write_lock:
+        enabled = enabled_roots()
+        save_enabled_roots(enabled | {root_id} if value else enabled - {root_id})
+    return list_roots()
 
 
 # Ensure we have the token

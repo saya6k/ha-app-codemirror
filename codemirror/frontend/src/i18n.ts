@@ -17,7 +17,7 @@ const ko: Record<string, string> = {
   'Render template': '템플릿 렌더링', 'Template preview': '템플릿 미리보기',
   'Run again': '다시 실행', 'Close template preview': '템플릿 미리보기 닫기',
   'Uses current HA states. Select a template fragment in YAML; without a selection, the entire document is rendered. Trigger and automation variables are not supplied.': '현재 HA 상태로 평가합니다. YAML에서는 템플릿 부분을 선택하세요. 선택하지 않으면 문서 전체를 렌더링합니다. trigger와 자동화 변수는 제공되지 않습니다.',
-  'Files': '파일', 'File actions': '파일 작업', 'Refresh files': '파일 새로고침',
+  'Files': '파일', 'Directories': '디렉토리', 'File actions': '파일 작업', 'Refresh files': '파일 새로고침',
   'New file': '새 파일', 'New folder': '새 폴더', 'New directory': '새 폴더',
   'Rename': '이름 변경', 'Delete': '삭제', 'Cut': '잘라내기', 'Copy': '복사', 'Paste': '붙여넣기',
   'Upload files': '파일 업로드', 'Upload folder': '폴더 업로드', 'Name': '이름',

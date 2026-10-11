@@ -3,7 +3,8 @@
 Verified locally on 2026-09-29 with Python 3.12 and Node.js 22 / Chrome.
 
 - Backend: 44 Python unittest tests passed. Coverage includes default denial,
-  independent opt-in/revocation for all five mounts, malformed options, Markdown
+  independent opt-in/revocation for all five mounts, runtime toggles via
+  `PUT /api/roots/<id>`, malformed workspace state, Markdown
   round trips, backups with mode/owner preservation, traversal and symlink/hardlink
   rejection, binary and Unicode uploads, conflicts, size limits, Ingress checks,
   same-origin request headers and mocked Home Assistant API contracts. Added

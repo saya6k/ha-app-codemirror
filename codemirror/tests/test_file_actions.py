@@ -23,7 +23,9 @@ class ExplorerAPITest(unittest.TestCase):
         (self.root / 'folder' / 'a.txt').write_text('source')
         self.options = self.base / 'options.json'
         self.options.write_text('{}')
-        patches = patch.multiple(server, ROOT_PATHS={'config': self.root, 'media': self.media}, OPTIONS_FILE=self.options)
+        self.workspaces = self.base / 'workspaces.json'
+        patches = patch.multiple(server, ROOT_PATHS={'config': self.root, 'media': self.media},
+                                 OPTIONS_FILE=self.options, WORKSPACES_FILE=self.workspaces)
         patches.start(); self.addCleanup(patches.stop)
         self.client = server.app.test_client()
 
@@ -59,11 +61,11 @@ class ExplorerAPITest(unittest.TestCase):
 
     def test_both_roots_require_permission(self):
         self.assertEqual(self.action('copy', 'folder', 'target', destination_root='media').status_code, 403)
-        self.options.write_text(json.dumps({'allow_media': True}))
+        self.workspaces.write_text(json.dumps({'enabled': ['config', 'media']}))
         self.assertEqual(self.action('move', 'folder', 'target', destination_root='media').status_code, 200)
         self.assertEqual((self.media / 'target/a.txt').read_text(), 'source')
         self.assertFalse((self.root / 'folder').exists())
-        self.options.write_text('{}')
+        self.workspaces.write_text('{}')
         self.assertEqual(self.action('copy', 'target', 'target', root='media').status_code, 403)
 
     def test_cross_device_move_and_copy_failure_preserves_source(self):
