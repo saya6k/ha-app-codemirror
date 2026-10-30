@@ -23,6 +23,8 @@ let resetTemplatePreview = () => {};
 let currentRoot = 'config';
 let roots: Workspace[] = [];
 let selectedPath = 'config';
+let selectedPaths = new Set<string>();
+let selectionAnchor = selectedPath;
 function splitPath(path: string) { const [root, ...rest] = path.split('/'); return { root, path: rest.join('/') }; }
 function selectedFolder() {
   const node = findNodeByPath(files, selectedPath);
@@ -210,7 +212,13 @@ fileListEl.addEventListener('keydown', (event) => {
       else next = fileListEl.querySelector(`[data-path="${CSS.escape(path.slice(0, path.lastIndexOf('/')))}"]`);
     }
     const target = next?.isConnected ? next : fileListEl.querySelector<HTMLElement>(`[data-path="${CSS.escape(path)}"]`);
-    if (target?.dataset.path) { selectedPath = target.dataset.path; highlightSelection(); target.focus(); }
+    if (!target?.dataset.path) return;
+    if (event.shiftKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
+      if (!selectedPaths.has(path)) { selectedPaths.clear(); selectedPath = path; highlightSelection(); }
+      extendSelection(target.dataset.path, true);
+    }
+    else { selectedPaths.clear(); selectedPath = target.dataset.path; highlightSelection(); }
+    target.focus();
   }
 });
 document.getElementById('refresh-files')!.addEventListener('click', () => void loadFiles());
@@ -491,8 +499,8 @@ async function init(): Promise<void> {
         clearDetails: clearValidationDetails,
       });
       initExplorerActions({
-        selection: () => ({ ...splitPath(selectedPath), type: findNodeByPath(files, selectedPath)?.type || 'directory' }),
-        select: (path) => { selectedPath = path; highlightSelection(); },
+        selection: () => selectionPaths().map(path => ({ ...splitPath(path), type: findNodeByPath(files, path)?.type || 'directory' })),
+        select: (path) => { selectedPaths.clear(); selectedPath = path; highlightSelection(); },
         folder: selectedFolder,
         busy: () => isSaving || isLoadingFile || isToolbarBusy || uploads.isBusy(),
         setBusy: (busy) => { isToolbarBusy = busy; setEditorReadOnly(busy || !currentFile); },
@@ -873,6 +881,12 @@ function handleFileListClick(e: Event): void {
      return;
    }
 
+   const mouse = e as MouseEvent;
+   if (mouse.shiftKey || mouse.ctrlKey || mouse.metaKey) {
+     extendSelection(path, mouse.shiftKey);
+     return;
+   }
+   selectedPaths.clear();
    if (treeItem.classList.contains('directory')) {
      e.stopPropagation();
      selectedPath = path;
@@ -895,11 +909,38 @@ function handleFileListClick(e: Event): void {
  * Toggle directory expanded/collapsed state
  */
 function highlightSelection(): void {
+  if (!selectedPaths.has(selectedPath)) { selectedPaths = new Set([selectedPath]); selectionAnchor = selectedPath; }
   fileListEl.querySelectorAll<HTMLElement>('.tree-item').forEach(el => {
-    const selected = el.dataset.path === selectedPath;
+    const selected = selectedPaths.has(el.dataset.path!);
     el.classList.toggle('active', selected);
     el.setAttribute('aria-selected', String(selected));
   });
+}
+/** Ctrl/Cmd toggles one item; Shift selects the visible range from the anchor. */
+function extendSelection(path: string, range: boolean): void {
+  if (!selectedPaths.has(selectedPath)) selectedPaths = new Set([selectedPath]);
+  if (range) {
+    const visible = Array.from(fileListEl.querySelectorAll<HTMLElement>('.tree-item'), el => el.dataset.path!);
+    const start = visible.indexOf(selectionAnchor), end = visible.indexOf(path);
+    if (start < 0) selectionAnchor = path;
+    selectedPaths = new Set(start < 0 ? [path] : visible.slice(Math.min(start, end), Math.max(start, end) + 1));
+    selectedPath = path;
+  } else if (selectedPaths.has(path) && selectedPaths.size > 1) {
+    selectedPaths.delete(path);
+    if (selectedPath === path) selectedPath = Array.from(selectedPaths).pop()!;
+    selectionAnchor = path;
+  } else {
+    selectedPaths.add(path);
+    selectedPath = selectionAnchor = path;
+  }
+  highlightSelection();
+}
+/** Visible selected paths in tree order, without entries already covered by a selected folder. */
+function selectionPaths(): string[] {
+  if (selectedPaths.size < 2 || !selectedPaths.has(selectedPath)) return [selectedPath];
+  const visible = Array.from(fileListEl.querySelectorAll<HTMLElement>('.tree-item'), el => el.dataset.path!).filter(path => selectedPaths.has(path));
+  const outer = visible.filter(path => !visible.some(other => path.startsWith(other + '/')));
+  return outer.length ? outer : [selectedPath];
 }
 function toggleDirectory(path: string): void {
   if (expandedDirs.has(path)) expandedDirs.delete(path); else expandedDirs.add(path);

@@ -110,3 +110,46 @@ test('rename preserves the saved tab without depending on another read', async (
   await expect(page.locator('[data-path="config/other.md"]')).toHaveCount(0);
   await expect(page.locator('[data-path="config/reopen-failed.md"]')).toBeVisible();
 });
+
+test('multi-selection cuts, pastes and deletes several entries at once', async ({ page }) => {
+  await page.goto('/');
+  for (const name of ['multi-a.md', 'multi-b.md', 'multi-c.md']) {
+    await page.request.post('/api/entries?root=config', { headers: { 'X-CodeMirror-Request': '1' }, data: { name, type: 'file' } });
+  }
+  await page.locator('#refresh-files').click();
+  const item = (path: string) => page.locator(`[data-path="${path}"]`);
+  await item('config/multi-a.md').click();
+  await item('config/multi-c.md').click({ modifiers: ['Shift'] });
+  for (const name of ['a', 'b', 'c']) await expect(item(`config/multi-${name}.md`)).toHaveAttribute('aria-selected', 'true');
+  await item('config/multi-b.md').click({ modifiers: ['ControlOrMeta'] });
+  await expect(item('config/multi-b.md')).toHaveAttribute('aria-selected', 'false');
+  await expect(item('config/multi-a.md')).toHaveAttribute('aria-selected', 'true');
+  await item('config/multi-c.md').click({ button: 'right' });
+  await expect(page.getByRole('menuitem', { name: 'Rename', exact: true })).toBeDisabled();
+  await page.getByRole('menuitem', { name: 'Cut', exact: true }).click();
+  await menu(page, 'config/docs', 'Paste');
+  await expect(page.locator('#status-message')).toContainText('completed');
+  await expect(item('config/multi-a.md')).toHaveCount(0);
+  await expect(item('config/multi-c.md')).toHaveCount(0);
+  await expect(item('config/multi-b.md')).toBeVisible();
+  if (!(await item('config/docs/multi-a.md').isVisible())) await item('config/docs').click();
+  await item('config/docs/multi-a.md').click();
+  await item('config/docs/multi-c.md').click({ modifiers: ['ControlOrMeta'] });
+  await item('config/multi-b.md').click({ modifiers: ['ControlOrMeta'] });
+  page.once('dialog', dialog => { expect(dialog.message()).toContain('3 items'); void dialog.accept(); });
+  await item('config/multi-b.md').focus();
+  await page.keyboard.press('Delete');
+  await expect(page.locator('#status-message')).toContainText('completed');
+  for (const path of ['config/docs/multi-a.md', 'config/docs/multi-c.md', 'config/multi-b.md']) await expect(item(path)).toHaveCount(0);
+});
+
+test('shift+arrow extends the selection and a plain click resets it', async ({ page }) => {
+  await page.goto('/');
+  await page.locator('[data-path="config/guide.md"]').focus();
+  await page.keyboard.press('Shift+ArrowDown');
+  const selected = page.locator('#file-list [aria-selected="true"]');
+  await expect(selected).toHaveCount(2);
+  await page.locator('[data-path="config/guide.md"]').click();
+  await expect(selected).toHaveCount(1);
+  await expect(page.locator('#current-filename')).toHaveText('guide.md');
+});
