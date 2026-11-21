@@ -177,3 +177,26 @@ test('dragging entries onto a folder moves them and refuses moving a folder into
   await expect(item('config/drag-dir')).toBeVisible();
   await expect(item('config/drag-dir')).not.toHaveClass(/drop-target/);
 });
+
+test('hovering a closed folder while dragging opens it so entries can be dropped inside', async ({ page }) => {
+  await page.goto('/');
+  const headers = { 'X-CodeMirror-Request': '1' };
+  await page.request.post('/api/entries?root=config', { headers, data: { name: 'hover-dir', type: 'directory' } });
+  await page.request.post('/api/entries?root=config', { headers, data: { directory: 'hover-dir', name: 'inner', type: 'directory' } });
+  await page.request.post('/api/entries?root=config', { headers, data: { name: 'hover-file.md', type: 'file' } });
+  await page.locator('#refresh-files').click();
+  const item = (path: string) => page.locator(`[data-path="${path}"]`);
+  await expect(item('config/hover-dir')).toHaveAttribute('aria-expanded', 'false');
+  await item('config/hover-file.md').hover();
+  await page.mouse.down();
+  await item('config/hover-dir').hover();
+  await item('config/hover-dir').hover({ position: { x: 30, y: 5 } });
+  await expect(item('config/hover-dir')).toHaveAttribute('aria-expanded', 'true');
+  await item('config/hover-dir/inner').hover();
+  await item('config/hover-dir/inner').hover({ position: { x: 30, y: 5 } });
+  await expect(item('config/hover-dir/inner')).toHaveAttribute('aria-expanded', 'true');
+  await page.mouse.up();
+  await expect(page.locator('#status-message')).toContainText('completed');
+  await expect(item('config/hover-file.md')).toHaveCount(0);
+  await expect(item('config/hover-dir/inner/hover-file.md')).toBeVisible();
+});

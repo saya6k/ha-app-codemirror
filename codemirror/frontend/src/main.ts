@@ -501,6 +501,7 @@ async function init(): Promise<void> {
       initExplorerActions({
         selection: () => selectionPaths().map(path => ({ ...splitPath(path), type: findNodeByPath(files, path)?.type || 'directory' })),
         select: (path) => { selectedPaths.clear(); selectedPath = path; highlightSelection(); },
+        expand: (path) => { if (!expandedDirs.has(path)) toggleDirectory(path); },
         folder: selectedFolder,
         busy: () => isSaving || isLoadingFile || isToolbarBusy || uploads.isBusy(),
         setBusy: (busy) => { isToolbarBusy = busy; setEditorReadOnly(busy || !currentFile); },

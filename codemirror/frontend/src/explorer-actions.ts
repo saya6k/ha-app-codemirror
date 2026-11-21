@@ -5,6 +5,7 @@ type Entry = { root: string; path: string; type: 'file' | 'directory' };
 interface Actions {
   selection(): Entry[];
   select(path: string): void;
+  expand(path: string): void;
   folder(): { root: string; folder: string };
   busy(): boolean;
   setBusy(value: boolean): void;
@@ -146,8 +147,21 @@ export function initExplorerActions(actions: Actions): void {
     }
   }
   // Dragging rows onto a folder (or a file, meaning its folder) moves them, like cut + paste.
+  const DRAG_TYPE = 'application/x-codemirror-entries';
   let dragged: Entry[] | null = null;
   let dropRow: HTMLElement | null = null;
+  // Hovering a closed folder while dragging opens it after a short pause.
+  let openTimer = 0;
+  let openPath = '';
+  function scheduleOpen(path: string) {
+    if (path === openPath) return;
+    clearTimeout(openTimer);
+    openPath = path;
+    if (path) openTimer = window.setTimeout(() => { openPath = ''; actions.expand(path); }, 600);
+  }
+  // Opening a folder re-renders the tree and can detach the dragged row, so its dragend
+  // may never reach the tree: recognise our own drags by their data type instead.
+  const ours = (event: DragEvent) => Boolean(dragged && event.dataTransfer?.types.includes(DRAG_TYPE));
   const parentOf = (path: string) => path.slice(0, path.lastIndexOf('/'));
   function dropFolder(target: EventTarget | null) {
     const row = (target as Element | null)?.closest?.<HTMLElement>('.tree-item');
@@ -174,26 +188,35 @@ export function initExplorerActions(actions: Actions): void {
     if (entries.some(entry => !entry.path)) { event.preventDefault(); return; }
     dragged = entries.map(entry => ({ ...entry }));
     event.dataTransfer.effectAllowed = 'move';
-    event.dataTransfer.setData('application/x-codemirror-entries', entries.map(full).join('\n'));
+    event.dataTransfer.setData(DRAG_TYPE, entries.map(full).join('\n'));
   });
-  tree.addEventListener('dragover', event => {
-    const drop = dragged && !actions.busy() ? dropFolder(event.target) : null;
+  function hover(event: DragEvent) {
+    if (!ours(event)) return;
+    const drop = !actions.busy() ? dropFolder(event.target) : null;
     highlight(drop?.folder ?? null);
+    const row = (event.target as Element).closest?.<HTMLElement>('.tree-item.directory[aria-expanded="false"]');
+    const path = row?.dataset.path ?? '';
+    scheduleOpen(dragged!.some(entry => path === full(entry) || path.startsWith(full(entry) + '/')) ? '' : path);
     if (!drop || !event.dataTransfer) return;
     event.preventDefault();
     event.dataTransfer.dropEffect = 'move';
-  });
-  tree.addEventListener('dragleave', event => { if (!tree.contains(event.relatedTarget as Node)) highlight(null); });
+  }
+  tree.addEventListener('dragenter', hover);
+  tree.addEventListener('dragover', hover);
+  tree.addEventListener('dragleave', event => { if (!tree.contains(event.relatedTarget as Node)) { highlight(null); scheduleOpen(''); } });
   tree.addEventListener('drop', event => {
-    const drop = dragged ? dropFolder(event.target) : null;
+    if (!ours(event)) return;
+    const drop = dropFolder(event.target);
+    dragged = null;
     highlight(null);
+    scheduleOpen('');
     if (!drop) return;
     event.preventDefault();
     const [root, ...rest] = drop.folder.split('/');
     const prefix = rest.length ? rest.join('/') + '/' : '';
     void execute(drop.entries.map(entry => ({ entry, target: prefix + entry.path.split('/').pop()! })), 'move', root);
   });
-  tree.addEventListener('dragend', () => { dragged = null; highlight(null); });
+  tree.addEventListener('dragend', () => { dragged = null; highlight(null); scheduleOpen(''); });
 
   button('rename-entry-btn').addEventListener('click', () => void rename());
   button('delete-entry-btn').addEventListener('click', () => void remove());
