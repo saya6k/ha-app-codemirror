@@ -787,7 +787,7 @@ function renderTreeNode(node: FileInfo, level: number = 0): string {
       : '<svg class="folder-icon" viewBox="0 0 16 16" fill="currentColor"><path d="M.54 3.87.5 3h2.672a.5.5 0 0 1 .4.2l.77 1.026H14.5a.5.5 0 0 1 .5.5v9.5a.5.5 0 0 1-.5.5H1.5a.5.5 0 0 1-.5-.5V4.22a.5.5 0 0 1 .04-.277z"/></svg>';
 
      let html = `
-       <div class="tree-item directory" data-path="${escapeHtml(node.path)}" data-level="${level}" style="padding-left: ${indent}px" role="treeitem" tabindex="0" aria-expanded="${isExpanded}">
+       <div class="tree-item directory" data-path="${escapeHtml(node.path)}" data-level="${level}" draggable="${level > 0}" style="padding-left: ${indent}px" role="treeitem" tabindex="0" aria-expanded="${isExpanded}">
          ${chevronIcon}
          ${folderIcon}
          <span class="item-name">${escapeHtml(node.name)}</span>
@@ -811,7 +811,7 @@ function renderTreeNode(node: FileInfo, level: number = 0): string {
      // File node - no chevron, so add spacing
      const fileIndent = indent + 20; // Extra space where chevron would be
      return `
-       <div class="tree-item file" data-path="${escapeHtml(node.path)}" data-level="${level}" style="padding-left: ${fileIndent}px" role="treeitem" tabindex="0">
+       <div class="tree-item file" data-path="${escapeHtml(node.path)}" data-level="${level}" draggable="true" style="padding-left: ${fileIndent}px" role="treeitem" tabindex="0">
          <svg class="file-icon" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
            <path d="M4 0a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V4.707A1 1 0 0 0 13.707 4L10 .293A1 1 0 0 0 9.293 0H4z"/>
            <path d="M9 1v3a1 1 0 0 0 1 1h3L9 1z"/>

@@ -153,3 +153,27 @@ test('shift+arrow extends the selection and a plain click resets it', async ({ p
   await expect(selected).toHaveCount(1);
   await expect(page.locator('#current-filename')).toHaveText('guide.md');
 });
+
+test('dragging entries onto a folder moves them and refuses moving a folder into itself', async ({ page }) => {
+  await page.goto('/');
+  const headers = { 'X-CodeMirror-Request': '1' };
+  await page.request.post('/api/entries?root=config', { headers, data: { name: 'drag-dir', type: 'directory' } });
+  for (const name of ['drag-a.md', 'drag-b.md']) await page.request.post('/api/entries?root=config', { headers, data: { name, type: 'file' } });
+  await page.locator('#refresh-files').click();
+  const item = (path: string) => page.locator(`[data-path="${path}"]`);
+  await item('config/drag-a.md').click();
+  await item('config/drag-b.md').click({ modifiers: ['ControlOrMeta'] });
+  await item('config/drag-a.md').dragTo(item('config/drag-dir'));
+  await expect(page.locator('#status-message')).toContainText('completed');
+  await expect(item('config/drag-a.md')).toHaveCount(0);
+  await expect(item('config/drag-b.md')).toHaveCount(0);
+  if (!(await item('config/drag-dir/drag-a.md').isVisible())) await item('config/drag-dir').click();
+  await expect(item('config/drag-dir/drag-b.md')).toBeVisible();
+  // Dropping on a file row targets that file's folder; dropping a folder into its own child is ignored.
+  await item('config/drag-dir/drag-a.md').dragTo(item('config/guide.md'));
+  await expect(item('config/drag-a.md')).toBeVisible();
+  await item('config/drag-dir').dragTo(item('config/drag-dir/drag-b.md'));
+  await expect(item('config/drag-dir/drag-b.md')).toBeVisible();
+  await expect(item('config/drag-dir')).toBeVisible();
+  await expect(item('config/drag-dir')).not.toHaveClass(/drop-target/);
+});
