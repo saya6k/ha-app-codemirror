@@ -145,6 +145,56 @@ export function initExplorerActions(actions: Actions): void {
       if (cut) clipboard = null;
     }
   }
+  // Dragging rows onto a folder (or a file, meaning its folder) moves them, like cut + paste.
+  let dragged: Entry[] | null = null;
+  let dropRow: HTMLElement | null = null;
+  const parentOf = (path: string) => path.slice(0, path.lastIndexOf('/'));
+  function dropFolder(target: EventTarget | null) {
+    const row = (target as Element | null)?.closest?.<HTMLElement>('.tree-item');
+    const path = row?.dataset.path;
+    if (!row || !path || !dragged) return null;
+    const folder = row.classList.contains('directory') ? path : parentOf(path);
+    // Skip entries already in the folder; refuse moving a folder into itself or below.
+    const entries = dragged.filter(entry => parentOf(full(entry)) !== folder);
+    if (!entries.length || entries.some(entry => folder === full(entry) || folder.startsWith(full(entry) + '/'))) return null;
+    return { folder, entries };
+  }
+  function highlight(folder: string | null) {
+    const row = folder ? tree.querySelector<HTMLElement>(`.tree-item.directory[data-path="${CSS.escape(folder)}"]`) : null;
+    if (row === dropRow) return;
+    dropRow?.classList.remove('drop-target');
+    dropRow = row;
+    dropRow?.classList.add('drop-target');
+  }
+  tree.addEventListener('dragstart', event => {
+    const item = (event.target as HTMLElement).closest<HTMLElement>('.tree-item');
+    if (!item?.dataset.path || !event.dataTransfer || actions.busy()) { event.preventDefault(); return; }
+    if (!selected(item)) actions.select(item.dataset.path);
+    const entries = actions.selection();
+    if (entries.some(entry => !entry.path)) { event.preventDefault(); return; }
+    dragged = entries.map(entry => ({ ...entry }));
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('application/x-codemirror-entries', entries.map(full).join('\n'));
+  });
+  tree.addEventListener('dragover', event => {
+    const drop = dragged && !actions.busy() ? dropFolder(event.target) : null;
+    highlight(drop?.folder ?? null);
+    if (!drop || !event.dataTransfer) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+  });
+  tree.addEventListener('dragleave', event => { if (!tree.contains(event.relatedTarget as Node)) highlight(null); });
+  tree.addEventListener('drop', event => {
+    const drop = dragged ? dropFolder(event.target) : null;
+    highlight(null);
+    if (!drop) return;
+    event.preventDefault();
+    const [root, ...rest] = drop.folder.split('/');
+    const prefix = rest.length ? rest.join('/') + '/' : '';
+    void execute(drop.entries.map(entry => ({ entry, target: prefix + entry.path.split('/').pop()! })), 'move', root);
+  });
+  tree.addEventListener('dragend', () => { dragged = null; highlight(null); });
+
   button('rename-entry-btn').addEventListener('click', () => void rename());
   button('delete-entry-btn').addEventListener('click', () => void remove());
   button('cut-entry-btn').addEventListener('click', () => remember(true));
