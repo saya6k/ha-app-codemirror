@@ -6,8 +6,8 @@
 #
 #   bash scripts/smoke.sh [image-tag]
 #
-# With no tag the image is built first. On this Mac that means the linux-test
-# container machine, where dockerd runs with --bridge=none: DOCKER_NET=--network=host
+# With no tag the image is built first. Extra docker network flags come from
+# $DOCKER_NET (none needed with the Mac's socktainer).
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
